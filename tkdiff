@@ -458,6 +458,7 @@ proc tmpfile {n} {
 proc run-command {cmd} {
     global opts errorCode
 
+    #puts "run-command:  $cmd"
     set stderr ""
     set exitcode 0
     set errfile [tmpfile "r"]
@@ -497,7 +498,8 @@ proc run-command {cmd} {
 proc die-unless {cmd file} {
     global opts errorCode
 
-    set result [run-command "$cmd >$file"]
+    set file [string trim $file "\""]
+    set result [run-command "$cmd \">$file\""]
     set stdout [lindex $result 0]
     set stderr [lindex $result 1]
     set exitcode [lindex $result 2]
@@ -851,8 +853,7 @@ proc get-file-rev {f index {r ""}} {
             append cmd ".exe"
         }
         set finfo(lbl,$index) "$f (CVS $rev)"
-        die-unless "exec $cmd update -p $cvsopt \"$f\"" $finfo(pth,$index)
-
+        die-unless "exec $cmd update -p $cvsopt \"$f\"" "\"$finfo(pth,$index)\""
     } elseif {[file isdirectory [file join $dirname SCCS]]} {
         if {[sccs-is-bk]} {
             set cmd "bk"
@@ -866,7 +867,7 @@ proc get-file-rev {f index {r ""}} {
         if {$tcl_platform(platform) == "windows"} {
             append cmd ".exe"
         }
-        die-unless "exec $cmd get -p $opt \"$f\"" $finfo(pth,$index)
+        die-unless "exec $cmd get -p $opt \"$f\"" "\"$finfo(pth,$index)\""
 
 
     } elseif {[file isdirectory [file join $dirname RCS]]} {
@@ -875,7 +876,7 @@ proc get-file-rev {f index {r ""}} {
             append cmd ".exe"
         }
         set finfo(lbl,$index) "$f (RCS $rev)"
-        die-unless "exec $cmd -p$rcsopt \"$f\"" $finfo(pth,$index)
+        die-unless "exec $cmd -p$rcsopt \"$f\"" "\"$finfo(pth,$index)\""
 
     } elseif {[regexp {,v$} $tailname]} {
         set cmd "co"
@@ -883,7 +884,7 @@ proc get-file-rev {f index {r ""}} {
             append cmd ".exe"
         }
         set finfo(lbl,$index) "$f (RCS $rev)"
-        die-unless "exec $cmd -p$rcsopt \"$f\"" $finfo(pth,$index)
+        die-unless "exec $cmd -p$rcsopt \"$f\"" \""$finfo(pth,$index)\""
 
     } elseif {[file exists [file join $dirname vcs.cfg]]} {
         set cmd "get"
@@ -891,7 +892,7 @@ proc get-file-rev {f index {r ""}} {
             append cmd ".exe"
         }
         set finfo(lbl,$index) "$f (PVCS $rev)"
-        die-unless "exec $cmd -p $pvcsopt \"$f\"" $finfo(pth,$index)
+        die-unless "exec $cmd -p $pvcsopt \"$f\"" "\"$finfo(pth,$index)\""
         filterCRCRLF $finfo(pth,$index)
 
     } elseif {[info exists ::env(P4CLIENT)]} {
@@ -900,7 +901,7 @@ proc get-file-rev {f index {r ""}} {
             append cmd ".exe"
         }
         set finfo(lbl,$index) "$f (Perforce $rev)"
-        die-unless "exec $cmd print -q \"$p4file\"" $finfo(pth,$index)
+        die-unless "exec $cmd print -q \"$p4file\"" "\"$finfo(pth,$index)\""
 
     } elseif {[info exists ::env(ACCUREV_BIN)]} {
         set cmd "accurev"
@@ -908,7 +909,7 @@ proc get-file-rev {f index {r ""}} {
             append cmd ".exe"
         }
         set finfo(lbl,$index) "$f ($acrev)"
-        die-unless "exec $cmd cat $acopt \"$f\"" $finfo(pth,$index)
+        die-unless "exec $cmd cat $acopt \"$f\"" "\"$finfo(pth,$index)\""
     } else {
         fatal-error "File '$f' is not part of a revision control system."
     }
