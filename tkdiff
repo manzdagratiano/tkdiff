@@ -64,7 +64,7 @@ wm withdraw .
 
 # set a couple o' globals that we might need sooner than later
 set g(name) "TkDiff"
-set g(version) "4.0"
+set g(version) "4.0.1"
 set g(nativeMenus) 1
 set g(started) 0
 
@@ -851,7 +851,7 @@ proc get-file-rev {f index {r ""}} {
 
     # For CVS, if it isn't checked out there is neither a CVS nor RCS
     # directory.  It will however have a ,v suffix just like rcs.
-    # There is not necessarily a RCS directory for RCS, either.         The file
+    # There is not necessarily a RCS directory for RCS, either. The file
     # always has a ,v suffix.
 
     if {[file isdirectory [file join $dirname CVS]]} {
@@ -892,7 +892,7 @@ proc get-file-rev {f index {r ""}} {
         set finfo(lbl,$index) "$f (RCS $rev)"
         die-unless "exec $cmd -p$rcsopt \"$f\"" "\"$finfo(pth,$index)\""
 
-    } elseif {[regexp {,v$} $tailname]} {
+    } elseif {[file exists [file join $dirname $tailname,v]]} {
         set cmd "co"
         if {$tcl_platform(platform) == "windows"} {
             append cmd ".exe"
