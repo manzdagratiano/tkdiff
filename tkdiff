@@ -3973,8 +3973,7 @@ proc customize-initLabels {} {
     set pref(tagln) {Highlight line numbers}
     set pref(tabstops) {Tab stops}
 
-    set pref(autoselect) "Automaticallly select the nearest diff region while \
-         scrolling"
+    set pref(autoselect) "Automatically select the nearest diff region while scrolling"
 }
 
 ###############################################################################
@@ -5023,6 +5022,7 @@ proc do-merge-choice {newversion} {
     if {$g(showmerge) && $opts(autocenter)} {
         merge-center
     }
+    set g(toggle) $newversion
 }
 
 ###############################################################################
