@@ -8,6 +8,7 @@ exec wish "$0" -- ${1+"$@"}
 # TkDiff -- A graphical front-end to diff for Unix and Windows.
 # Copyright (C) 1994-1998 by John M. Klassa.
 # Copyright (C) 1999-2001 by AccuRev Inc.
+# Copyright (C) 2002-2003 by John M. Klassa.
 #
 # TkDiff Home Page: http://tkdiff.sourceforge.net
 #
@@ -63,7 +64,7 @@ wm withdraw .
 
 # set a couple o' globals that we might need sooner than later
 set g(name) "TkDiff"
-set g(version) "3.10"
+set g(version) "4.0b1"
 set g(nativeMenus) 1
 set g(started) 0
 
@@ -152,6 +153,9 @@ entry .testent
 set w(selcolor) [lindex [.testent configure -selectbackground] 3]
 set entryfont [lindex [.testent configure -font] 3]
 destroy .testent
+# the above results in a nearly undistinguishable darker gray for the
+# selected color (rh8 with tk 8.3.3-74) "#c3c3c3"
+set w(selcolor) "#b03060"
 
 # Make sure they're specified in points not pixels.  AquaTk doesn't.
 if {! [regexp -- {-} $labelfont]} {
@@ -232,7 +236,9 @@ array set opts {
     showcbs	1
     showln	1
     showmap	1
-    showlineview 1
+    showlineview 0
+    showinline1 0
+    showinline2 1
     syncscroll	1
     toolbarIcons 1
     tagcbs	0
@@ -266,19 +272,45 @@ array set report {
 if {[string first "color" [winfo visual .]] >= 0} {
     # We have color
     # (but, let's not go crazy...)
+
+# old default options:
+#     array set opts [subst {
+# 	textopt "-background white -foreground black -font $font"
+# 	currtag "-background blue -foreground white"
+# 	difftag "-background gray -foreground black -font $bold"
+# 	deltag	"-background red1 -foreground black"
+# 	instag	"-background green3 -foreground black"
+# 	chgtag	"-background DodgerBlue1 -foreground black"
+# 	overlaptag	"-background yellow -foreground black"
+# 	bytetag	"-underline 1 -foreground white -background black"
+# 	inlinetag	"-background lightblue -foreground white -font $bold"
+# 	-	"-background red1 -foreground red1"
+# 	+	"-background green -foreground green"
+# 	!	"-background blue -foreground blue"
+# 	?	"-background yellow -foreground yellow"
+#     }]
+
+    set colorins Tomato
+    set colordel LightGreen
+    set colorchg DodgerBlue
+
     array set opts [subst {
-	textopt "-background white -foreground black  -font $font"
-	currtag "-background blue -foreground white"
-	difftag "-background gray -foreground black  -font $bold"
-	deltag	"-background red1 -foreground black"
-	instag	"-background green3 -foreground black"
-	chgtag	"-background DodgerBlue1 -foreground black"
-	overlaptag	"-background yellow -foreground black"
-	bytetag "-underline 1 -foreground white -background black"
-	-	"-background red1 -foreground red1"
-	+	"-background green -foreground green"
-	!	"-background blue -foreground blue"
+	textopt "-background white -foreground black -font $font"
+	currtag "-background Khaki"
+	difftag "-background gray"
+	deltag	"-background $colorins -font $bold"
+	instag	"-background $colordel -font $bold"
+	chgtag	"-background LightSteelBlue"
+	overlaptag	"-background yellow"
+	bytetag	"-underline 1 -background black -foreground white"
+	inlinetag	"-background $colorchg -font $bold"
+	-	"-background $colorins -foreground $colorins"
+	+	"-background $colordel -foreground $colordel"
+	!	"-background $colorchg -foreground $colorchg"
 	?	"-background yellow -foreground yellow"
+	mapins "$colorins"
+	mapdel "$colordel"
+	mapchg "$colorchg"
     }]
 
 } else {
@@ -293,10 +325,14 @@ if {[string first "color" [winfo visual .]] >= 0} {
 	chgtag	"-background black -foreground white"
 	overlaptag "-background black -foreground white"
 	bytetag "-underline 1"
+	inlinetag "-underline 1"
 	-	"-background black -foreground white"
 	+	"-background black -foreground white"
 	!	"-background black -foreground white"
 	?	"-background black -foreground white"
+	mapins "black"
+	mapdel "black"
+	mapchg "black"
     }]
 }
 
@@ -1518,7 +1554,7 @@ proc build-client {} {
 
     foreach widget [list $w(LeftText) $w(LeftInfo) $w(LeftCB) $w(RightText) $w(RightInfo) $w(RightCB)] {
 	eval "$widget configure $opts(textopt)"
-	foreach tag {difftag currtag deltag instag chgtag overlaptag + - ! ?} {
+	foreach tag {difftag currtag inlinetag deltag instag chgtag overlaptag + - ! ?} {
 	    eval "$widget tag configure $tag $opts($tag)"
 	}
     }
@@ -1529,6 +1565,7 @@ proc build-client {} {
 	$w($window) tag raise chgtag currtag
 	$w($window) tag raise instag currtag
 	$w($window) tag raise currtag difftag
+	$w($window) tag raise inlinetag
     }
 
     # these tags are specific to change bars
@@ -1728,6 +1765,169 @@ proc build-client {} {
     proc $w(RightText) {command args} $::text_widget_proc
     proc $w(LeftText) {command args} $::text_widget_proc
 
+}
+
+###############################################################################
+# Functionality: Inline diffs
+# Athr: Michael D. Beynon : mdb - beynon@yahoo.com
+# Date: 04/08/2003 : mdb - Added inline character diffs.
+#       04/16/2003 : mdb - Rewrote longest-common-substring to be faster.
+#                        - Added byte-by-byte algorithm.
+#
+# the recursive version is derived from the Ratcliff/Obershelp pattern
+# recognition algorithm (Dr Dobbs July 1988), where we search for a
+# longest common substring between two strings.  This match is used as
+# an archor, around which we recursively do the same for the two left
+# and two right remaining pieces (omitting the anchor).  This
+# precisely determines the location of the intraline tags.
+#################################################################################
+
+proc longest-common-substring {s1 off1 len1 s2 off2 len2 lcsoff1_ref lcsoff2_ref} {
+    upvar $lcsoff1_ref lcsoff1
+    upvar $lcsoff2_ref lcsoff2
+    set snippet "";
+    set snippetlen 0
+    set longestlen 0
+
+    # extract just the search regions for efficiency in string searching
+    set s1 [string range $s1 $off1 [expr $off1+$len1-1]]
+    set s2 [string range $s2 $off2 [expr $off2+$len2-1]]
+
+    set j 0;
+    while {1} {
+	# increase size of matching snippet
+	while {$snippetlen < $len2-$j} {
+	    set tmp "$snippet[string index $s2 [expr $j+$snippetlen]]"
+	    if {[string first $tmp $s1] == -1} { break }
+	    set snippet $tmp
+	    incr snippetlen
+	}
+	if {$snippetlen == 0} {
+	    # nothing starting at this position
+	    incr j
+	    if {$snippetlen >= $len2-$j} { break }
+	} else {
+	    set tmpoff [string first $snippet $s1]
+	    if {$tmpoff != -1 && $snippetlen > $longestlen} {  # new longest?
+		set longest $snippet
+		set longestlen $snippetlen
+		set lcsoff1 [expr $off1+$tmpoff]
+		set lcsoff2 [expr $off2+$j]
+	    }
+	    # drop 1st char of prefix, but keep size the same as longest
+	    if {$snippetlen >= $len2-$j} { break }
+	    set snippet "[string range $snippet 1 end][string index $s2 [expr $j+$snippetlen]]"
+	    incr j
+	}
+    }
+    return $longestlen
+}
+
+proc fid-ratcliff-aux {pos l1 l2 s1 off1 len1 s2 off2 len2} {
+    global g
+
+    if {$len1 <= 0 || $len2 <= 0} {
+	if {$len1 == 0} {
+	    set g(scrinline,$pos,$g(scrinline,$pos)) \
+		[list r $l2 $off2 [expr $off2+$len2]]
+	    incr g(scrinline,$pos)
+	} elseif {$len2 == 0} {
+	    set g(scrinline,$pos,$g(scrinline,$pos)) \
+		[list l $l1 $off1 [expr $off1+$len1]]
+	    incr g(scrinline,$pos)
+	}
+	return 0
+    }
+    set cnt 0
+    set lcsoff1 -1
+    set lcsoff2 -1
+
+    set ret [longest-common-substring $s1 $off1 $len1 $s2 $off2 $len2 lcsoff1 lcsoff2];
+
+    if {$ret > 0} {
+	set rightoff1 [expr $lcsoff1+$ret]
+	set rightoff2 [expr $lcsoff2+$ret]
+
+	incr cnt [expr 2*$ret]
+	if {$lcsoff1 > $off1 || $lcsoff2 > $off2} {
+	    # left
+	    incr cnt [fid-ratcliff-aux $pos $l1 $l2 \
+			  $s1 $off1 [expr $lcsoff1-$off1] \
+			  $s2 $off2 [expr $lcsoff2-$off2]];
+	}
+	if {$rightoff1<$off1+$len1 || $rightoff2<$off2+$len2} {
+	    # right
+	    incr cnt [fid-ratcliff-aux $pos $l1 $l2 \
+			  $s1 $rightoff1 [expr $off1+$len1-$rightoff1] \
+			  $s2 $rightoff2 [expr $off2+$len2-$rightoff2]]
+	}
+    } else {
+	set g(scrinline,$pos,$g(scrinline,$pos)) \
+	    [list r $l2 $off2 [expr $off2+$len2]]
+	incr g(scrinline,$pos)
+	set g(scrinline,$pos,$g(scrinline,$pos)) \
+	    [list l $l1 $off1 [expr $off1+$len1]]
+	incr g(scrinline,$pos)
+    }
+    return $cnt
+}
+
+proc find-inline-diff-ratcliff {pos l1 l2 s1 s2} {
+    global g
+
+    set len1 [string length $s1]
+    set len2 [string length $s2]
+    if {$len1 == 0 || $len2 == 0} {
+	return 0
+    }
+    return [fid-ratcliff-aux $pos $l1 $l2 $s1 0 $len1 $s2 0 $len2]
+}
+
+proc find-inline-diff-byte {pos l1 l2 s1 s2} {
+    global g
+
+    set len1 [string length $s1]
+    set len2 [string length $s2]
+    if {$len1 == 0 || $len2 == 0} {
+	return 0
+    }
+
+    set cnt 0
+
+    set lenmin [min $len1 $len2]
+    set size 0
+    for {set i 0} {$i < $lenmin} {incr i} {
+	if {$size > 0} {  # in a diff section
+	    if {[string index $s1 $i] == [string index $s2 $i]} {
+		# end of diff region
+		set g(scrinline,$pos,$g(scrinline,$pos)) \
+		    [list r $l2 [expr $i-$size] $i]
+		incr g(scrinline,$pos)
+		set g(scrinline,$pos,$g(scrinline,$pos)) \
+		    [list l $l1 [expr $i-$size] $i]
+		incr g(scrinline,$pos)
+		set size 0
+		incr cnt
+	    } else {
+		incr size
+	    }
+	} else {
+	    if {[string index $s1 $i] != [string index $s2 $i]} {
+		set size 1
+	    }
+	}
+    }
+    if {$size > 0} {
+	# end of diff region
+	set g(scrinline,$pos,$g(scrinline,$pos)) \
+	    [list r $l2 [expr $i-$size] $len2]
+	incr g(scrinline,$pos)
+	set g(scrinline,$pos,$g(scrinline,$pos)) \
+	    [list l $l1 [expr $i-$size] $len1]
+	incr g(scrinline,$pos)
+	incr cnt
+    }
+    return $cnt
 }
 
 ###############################################################################
@@ -2069,9 +2269,10 @@ proc do-find {} {
     }
 }
 proc build-menubar {} {
-    global tooltip
-    global w
     global g
+    global opts
+    global w
+    global tooltip
 
 	menu $w(menubar)
 
@@ -2132,6 +2333,9 @@ proc build-menubar {} {
         -label "Clear Current Diff Mark"\
         -command [list diffmark clear]\
         -underline 0
+
+    set "g(tooltip,Mark Current Diff)" "Create a marker for the current difference record"
+    set "g(tooltip,Clear Current Diff Mark)" "Clear the marker for the current difference record"
 
     # File menu...
     menu $fileMenu
@@ -2238,11 +2442,23 @@ proc build-menubar {} {
         -command do-show-map
 
     $viewMenu add checkbutton\
-        -label "Show Line Comparison"\
+        -label "Show Line Comparison Window"\
         -underline 11\
         -selectcolor $w(selcolor)\
         -variable opts(showlineview)\
         -command do-show-lineview
+
+    $viewMenu add checkbutton\
+        -label "Show Inline Comparison (byte)"\
+        -selectcolor $w(selcolor)\
+        -variable opts(showinline1)\
+        -command do-show-inline1
+
+    $viewMenu add checkbutton\
+        -label "Show Inline Comparison (recursive)"\
+        -selectcolor $w(selcolor)\
+        -variable opts(showinline2)\
+        -command do-show-inline2
 
     $viewMenu add separator
 
@@ -2291,11 +2507,13 @@ proc build-menubar {} {
         -command {move last}\
         -accelerator "L"
 
-    set "g(tooltip,Show Line Comparison)" "If set, show the current line comparison window"
     set "g(tooltip,Show Change Bars)" "If set, show the changebar column for each line of each file"
     set "g(tooltip,Show Line Numbers)" "If set, show line numbers beside each line of each file"
     set "g(tooltip,Synchronize Scrollbars)" "If set, scrolling either window will scroll both windows."
     set "g(tooltip,Diff Map)" "If set, display the graphical \"Difference Map\" in the center of the display."
+    set "g(tooltip,Show Line Comparison Window)" "If set, display the window with byte-by-byte differences."
+    set "g(tooltip,Show Inline Comparison (byte))" "If set, display inline byte-by-byte differences."
+    set "g(tooltip,Show Inline Comparison (recursive))" "If set, display inline differences based on recursive matching regions."
     set "g(tooltip,Auto Select)" "If set, automatically selects the nearest diff record while scrolling"
     set "g(tooltip,Auto Center)" "If set, moving to another diff record will center the diff on the screen."
     set "g(tooltip,Center Current Diff)" "Center the display around the current diff record."
@@ -3327,6 +3545,7 @@ proc customize {} {
 	    -indicatoron true\
 	    -text "$pref($key)"\
 	    -justify left\
+	    -width [string length $pref($key)] \
 	    -onvalue 1\
 	    -offvalue 0\
 	    -variable tmpopts($key)
@@ -3375,7 +3594,7 @@ proc customize {} {
     # Appearance
     set frame $w(preferences).fAppearance
     set count 0
-    foreach key {textopt difftag deltag instag chgtag currtag bytetag overlaptag} {
+    foreach key {textopt difftag deltag instag chgtag currtag bytetag inlinetag overlaptag} {
 	label $frame.l$count\
 	    -text "$pref($key): "\
 	    -anchor w
@@ -3474,7 +3693,7 @@ proc customize {} {
     #
     # an x means an empty column; a - means an empty row
     set col 0
-    foreach key [list showln tagln showcbs tagcbs showmap colorcbs showlineview tagtext -] {
+    foreach key [list showln tagln showcbs tagcbs showmap colorcbs showlineview tagtext showinline1 x showinline2 x] {
 
 	if {$key == "x"} {
 	    set col [expr {$col ? 0 : 1}]
@@ -3532,6 +3751,10 @@ proc customize {} {
     grid columnconfigure $frame 4\
         -weight 1
 
+    # add validation to make only one of the showinline# options are set
+    trace variable tmpopts(showinline1) w [list validate-inline showinline1]
+    trace variable tmpopts(showinline2) w [list validate-inline showinline2]
+
     # this, in effect, adds a hidden row at the bottom which takes
     # up any extra room
 
@@ -3577,6 +3800,18 @@ proc validate {type name index op} {
     }
 }
 
+proc validate-inline {option name index op} {
+    global tmpopts
+
+    if {$tmpopts($index)} {
+	if {$index == "showinline1"} {
+	    set tmpopts(showinline2) 0
+	} elseif {$index == "showinline2"} {
+	    set tmpopts(showinline1) 0
+	}
+    }
+}
+
 proc customize-selectPage {{frame {}}} {
     global g w
 
@@ -3606,6 +3841,7 @@ proc customize-initLabels {} {
     set pref(bytetag) {Tag options for characters in line view}
     set pref(difftag) {Tag options for diff regions}
     set pref(currtag) {Tag options for the current diff region}
+    set pref(inlinetag) {Tag options for diff region inline differences}
     set pref(deltag) {Tag options for deleted diff region}
     set pref(instag) {Tag options for inserted diff region}
     set pref(chgtag) {Tag options for changed diff region}
@@ -3616,6 +3852,8 @@ proc customize-initLabels {} {
 
     set pref(fancyButtons) {Windows-style toolbar buttons}
     set pref(showlineview) {Show current line comparison window}
+    set pref(showinline1) {Show inline diffs (byte comparisons)}
+    set pref(showinline2) {Show inline diffs (recursive matching algorithm)}
     set pref(showmap) {Show graphical map of diffs}
     set pref(showln) {Show line numbers}
     set pref(showcbs) {Show change bars}
@@ -3691,7 +3929,7 @@ proc apply {{remark 0}} {
         -height $height
 
 
-    foreach tag {difftag currtag deltag instag chgtag overlaptag} {
+    foreach tag {difftag currtag inlinetag deltag instag chgtag overlaptag} {
 	foreach win [list $w(LeftText) $w(LeftInfo) $w(LeftCB) $w(RightText) $w(RightInfo) $w(RightCB)] {
 	    if {[catch "$win tag configure $tag $tmpopts($tag)"]} {
 		do-error "Invalid settings for \"$pref($tag)\": \n\n'$tmpopts($tag)' is not a valid option string"
@@ -3728,10 +3966,10 @@ proc apply {{remark 0}} {
     }
 
     # set opts to the values from tmpopts
-    foreach key {diffcmd textopt difftag currtag deltag instag chgtag overlaptag\
+    foreach key {diffcmd textopt difftag currtag inlinetag deltag instag chgtag overlaptag\
             tmpdir editor showmap showln showcbs showlineview autocenter syncscroll\
             tagln tagcbs tagtext autoselect toolbarIcons geometry\
-      fancyButtons colorcbs tabstops} {
+            fancyButtons colorcbs tabstops} {
 	set opts($key) $tmpopts($key)
     }
     if {$opts(fancyButtons)} {
@@ -3740,11 +3978,19 @@ proc apply {{remark 0}} {
         set opts(relief) raised
      }
 
+    # determine if we need to redo the inline diffs to avoid needless rediff
+    if {$opts(showinline1) != $tmpopts(showinline1) || \
+	$opts(showinline2) != $tmpopts(showinline2)} {
+	set opts(showinline1) $tmpopts(showinline1)
+	set opts(showinline2) $tmpopts(showinline2)
+	recompute-diff
+    }
+
     # reconfigure the toolbar buttons
     reconfigure-toolbar
 
     # remark all the diff regions, show (or hide) the line numbers,
-     # change bars and diff map, and we are done
+    # change bars and diff map, and we are done
     if {$remark} {
 	remark-diffs
     }
@@ -3781,8 +4027,8 @@ proc save {} {
     puts $fid "set prefsFileVersion {$g(version)}\n"
 
     # now, put all of the preferences in the file
-    foreach key {diffcmd textopt difftag currtag deltag instag bytetag overlaptag\
-            tabstops chgtag showmap showln showcbs showlineview autocenter syncscroll\
+    foreach key {diffcmd textopt difftag currtag inlinetag deltag instag bytetag overlaptag\
+            tabstops chgtag showmap showln showcbs showlineview showinline1 showinline2 autocenter syncscroll\
             fancyButtons geometry editor colorcbs autoselect tagln tagcbs tagtext\
             toolbarIcons} {
 	regsub "\n" $pref($key) "\n# " comment
@@ -3952,6 +4198,7 @@ proc create-map {name mapwidth mapheight} {
     global g
     global w
     global map
+    global opts
 
     set map $name
 
@@ -3977,13 +4224,13 @@ proc create-map {name mapwidth mapheight} {
 	}
 	switch $type {
 	    "d" {
-		    set color red1
+		set color $opts(mapdel)
 		}
 	    "a" {
-		    set color green
+		set color $opts(mapins)
 		}
 	    "c" {
-		    set color blue
+		set color $opts(mapchg)
 		}
 	}
 	if { [info exists g(overlap$i) ] } {
@@ -3999,9 +4246,11 @@ proc create-map {name mapwidth mapheight} {
     # isn't important since it will get resized when map-move-thumb
     # is called...
     $w(mapCanvas) create line 0 0 0 0\
+	-width 1 \
         -tags thumbUL\
         -fill white
     $w(mapCanvas) create line 1 1 1 1\
+	-width 1 \
         -tags thumbLR\
         -fill black
     $w(mapCanvas) raise thumb
@@ -4094,6 +4343,38 @@ proc do-show-lineview {{showLineview {}}} {
     } else {
 	grid forget $w(BottomText)
     }
+}
+
+###############################################################################
+# Toggle showing inline comparison
+###############################################################################
+
+proc do-show-inline1 {{showInline1 {}}} {
+    global opts
+
+    if {$showInline1 != {}} {
+        puts "passed in value=$showInline1"
+	set opts(showinline1) $showInline1
+    }
+
+    # mutually disjoint options
+    if {$opts(showinline1)} {
+	set opts(showinline2) 0
+    }
+    recompute-diff
+}
+proc do-show-inline2 {{showInline2 {}}} {
+    global opts
+
+    if {$showInline2 != {}} {
+	set opts(showinline2) $showInline2
+    }
+
+    # mutually disjoint options
+    if {$opts(showinline2)} {
+	set opts(showinline1) 0
+    }
+    recompute-diff
 }
 
 ###############################################################################
@@ -4672,6 +4953,7 @@ proc extract {line} {
 proc add-lines {pos} {
     global g
     global w
+    global opts
 
     # Figure out which lines we need to address...
     foreach [list thisdiff s1 e1 s2 e2 type] $g(pdiff,$pos) { }
@@ -4781,6 +5063,31 @@ proc add-lines {pos} {
 
     # Save the diff block in window coordinates
     set g(scrdiff,$g(count)) [list $thisdiff $s1 $e1 $s2 $e2 $type]
+
+    set g(scrinline,$pos) 0
+    if {$opts(showinline1) || $opts(showinline2)} {
+	# datastructs:
+	# g(scrinline,$pos) <num>
+	# g(scrinline,$pos,<0..num-1>) [list <l|r> <scrline> <colstart> <colend>]
+	if {$type == "c"} {
+	    set numlines [max [expr {$e1-$s1+1}] [expr {$e2-$s2+1}]]
+	    #puts "DBG: thisdiff=$thisdiff s1=$s1 e1=$e1 s2=$s2 e2=$e2 type=$type numlines=$numlines"
+	    for {set i 0} {$i < $numlines} {incr i} {
+		set l1 [expr $s1+$i]
+		set l2 [expr $s2+$i]
+		#puts "DBG: left='[$w(LeftText) get $l1.0 $l1.end]'\n    right='[$w(RightText) get $l2.0 $l2.end]'"
+		if {$opts(showinline1)} {
+		    find-inline-diff-byte $pos $l1 $l2 \
+			[$w(LeftText) get $l1.0 $l1.end] \
+			[$w(RightText) get $l2.0 $l2.end]
+		} else {
+		    find-inline-diff-ratcliff $pos $l1 $l2 \
+			[$w(LeftText) get $l1.0 $l1.end] \
+			[$w(RightText) get $l2.0 $l2.end]
+		}
+	    }
+	}
+    }
 }
 
 ###############################################################################
@@ -4792,6 +5099,10 @@ proc add-tag {wgt tag start end type new {exact 0}} {
 
     $wgt tag add $tag $start.0 [expr {$end + 1}].0
 
+}
+
+proc add-inline-tag {wgt tag line startcol endcol} {
+    $wgt tag add $tag $line.$startcol $line.$endcol
 }
 
 ###############################################################################
@@ -4898,6 +5209,7 @@ proc set-tag {pos newtag {oldtag ""} {setpos 0}} {
     # make sure the sel tag has the highest priority
     foreach window [list LeftText RightText LeftCB RightCB LeftInfo RightInfo] {
 	$w($window) tag raise sel
+	$w($window) tag raise inlinetag
     }
 
     return $thisdiff
@@ -5361,6 +5673,7 @@ proc wipe-window {} {
 	    -state normal
 	$w(${mod}Text) tag remove difftag 1.0 end
 	$w(${mod}Text) tag remove currtag 1.0 end
+	$w(${mod}Text) tag remove inlinetag 1.0 end
 	$w(${mod}Text) delete 1.0 end
 
 	$w(${mod}Info) configure\
@@ -5503,7 +5816,7 @@ proc remark-diffs {} {
 
     # reconfigure all the tags based on the current options
     # first, the common tags:
-    foreach tag {difftag currtag deltag instag chgtag overlaptag } {
+    foreach tag {difftag currtag inlinetag deltag instag chgtag overlaptag } {
 	foreach win [list $w(LeftText) $w(LeftInfo) $w(LeftCB) $w(RightText) $w(RightInfo) $w(RightCB)] {
 	    if {[catch "$win tag configure $tag $opts($tag)"]} {
 		do-error "Invalid settings for \"$pref($tag)\": \n\n'$opts($tag)' is not a valid option string."
@@ -5531,6 +5844,15 @@ proc remark-diffs {} {
     # now, reapply the tags to all the diff regions
     for {set i 1} {$i <= $g(count)} {incr i} {
 	set-tag $i difftag
+	# add the inline annotation
+	for {set j 0} {$j < $g(scrinline,$i)} {incr j} {
+	    foreach {side line startcol endcol} $g(scrinline,$i,$j) { }
+	    if {$side == "l"} {
+		add-inline-tag $w(LeftText) inlinetag $line $startcol $endcol
+	    } else {
+		add-inline-tag $w(RightText) inlinetag $line $startcol $endcol
+	    }
+	}
     }
 
     # finally, reset the current diff
@@ -6864,6 +7186,19 @@ If set, show a window at the bottom of the display that shows the current line f
       changed.
 If not set, the window will not be shown.
 
+<bld>$pref(showinline1)</bld>
+
+If set, show inline diffs in the main window. This is useful to see what the actual diffs are within a large diff region. \
+If not set, the inline diffs are neither computed nor shown.  This is the simpler approach, where byte-by-byte comparisons \
+are used.
+
+<bld>$pref(showinline2)</bld>
+
+If set, show inline diffs in the main window. This is useful to see what the actual diffs are within a large diff region. \
+If not set, the inline diffs are neither computed nor shown.  This approach is more complex, but should give more pleasing \
+results for source code and written text files.  This is the Ratcliff/Obershelp pattern matching algorithm which recursively \
+finds the largest common substring, and recursively repeats on the left and right remainders.
+
 <bld>$pref(tagtext)</bld>
 
 If set, the file contents will be highlighted with the options defined in the Appearance section of the preferences.
@@ -6901,6 +7236,11 @@ This is a list of Tk text widget tag options that are applied to regions that ha
 <bld>$pref(currtag)</bld>
 
 This is a list of Tk text widget tag options that are applied to the current diff region. These tags have a higher priority than those for all diff regions, and a higher priority than the change,\
+      inserted and deleted diff regions.
+
+<bld>$pref(inlinetag)</bld>
+
+This is a list of Tk text widget tag options that are applied to differences within lines in a diff region. These tags have a higher priority than those for all diff regions, and a higher priority than the change,\
       inserted and deleted diff regions.
 
 <bld>$pref(bytetag)</bld>
