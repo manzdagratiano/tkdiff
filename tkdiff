@@ -3,7 +3,7 @@
 # the next line restarts using wish \
 exec wish "$0" -- ${1+"$@"}
 
-# $Id: tkdiff,v 1.6 2003-01-12 20:21:34 klassa Exp $
+# $Id: tkdiff,v 1.7 2003-01-12 20:22:08 klassa Exp $
 
 ###############################################################################
 #
@@ -56,8 +56,9 @@ wm withdraw .
 
 # set a couple o' globals that we might need sooner than later
 set g(name) "TkDiff"
-set g(version) "3.02"
+set g(version) "3.03"
 set g(nativeMenus) 1
+set g(started) 0
 
 # ok, I'll admit -- this is a personal preference. I suppose I ought to
 # move this into the preferences or remove it entirely. Sue me. :-)
@@ -169,21 +170,22 @@ array set finfo {
 ###############################################################################
 
 array set opts {
-    autocenter  1
-    autoselect  0
-    colorcbs    0
-    customCode  {}
-    diffcmd     "diff"
-    editor      ""
-    geometry    "80x30"
-    showcbs     1
-    showln      1
-    showmap     1
-    syncscroll  1
+    autocenter   1
+    autoselect   0
+    colorcbs     0
+    customCode   {}
+    diffcmd      "diff"
+    editor       ""
+    geometry     "80x30"
+    showcbs      1
+    showln       1
+    showmap      1
+    showlineview 0
+    syncscroll   1
     toolbarIcons 1
-    tagcbs      0
-    tagln       0
-    tagtext     1
+    tagcbs       0
+    tagln        0
+    tagtext      1
 }
 
 if {$tcl_platform(platform) == "windows"} {
@@ -216,6 +218,7 @@ if {[string first "color" [winfo visual .]] >= 0} {
         deltag  "-background red1 -foreground black"
         instag  "-background green3 -foreground black"
         chgtag  "-background DodgerBlue1 -foreground black"
+	bytetag "-underline 1 -foreground white -background black"
         -       "-background red1 -foreground red1"
         +       "-background green -foreground green"
         !       "-background blue -foreground blue"
@@ -231,6 +234,7 @@ if {[string first "color" [winfo visual .]] >= 0} {
         deltag  "-background black -foreground white"
         instag  "-background black -foreground white"
         chgtag  "-background black -foreground white"
+	bytetag "-underline 1"
         -       "-background black -foreground white"
         +       "-background black -foreground white"
         !       "-background black -foreground white"
@@ -874,13 +878,15 @@ proc init-files {} {
         }
     }
 
-    set finfo(title) "$finfo(lbl,1) vs. $finfo(lbl,2)"
+    set finfo(title) "[file tail $finfo(lbl,1)] vs. [file tail $finfo(lbl,2)]"
     set rootname [file rootname  $finfo(pth,1)]
 #    set path     [file dirname   $finfo(pth,1)]
     set path [pwd]
     set suffix   [file extension $finfo(pth,1)]
     set g(mergefile) [file join $path "${rootname}-merge$suffix"]
     set g(initOK) 1
+
+    wm title . "$finfo(title) - $g(name) $g(version)"
 }
 
 ###############################################################################
@@ -957,7 +963,7 @@ proc create-display {} {
     # they sync up immediately
     trace variable opts(syncscroll) w toggleSyncScroll
     wm deiconify .
-    focus -force $w(LeftText)
+    focus -force $w(RightText)
     update idletasks
 
     set g(started) 1
@@ -973,7 +979,7 @@ proc toggleSyncScroll {args} {
     global w
 
     if {$opts(syncscroll) == 1} {
-	eval vscroll-sync {{}} [$w(RightText) yview]
+	eval vscroll-sync {{}} 2 [$w(RightText) yview]
     }
 }
 
@@ -1111,6 +1117,8 @@ proc build-client {} {
     set w(RightHSB)   $w(client).right.hsb
     set w(RightLabel) $w(client).rightlabel
 
+    set w(BottomText) $w(client).bottomtext
+
     set w(map)        $w(client).map
     set w(mapCanvas)  $w(map).canvas
 
@@ -1221,6 +1229,20 @@ proc build-client {} {
             -borderwidth 0 \
             -yscrollcommand [list vscroll-sync "$w(RightInfo) $w(RightText)" 2]
 
+    # this widget is the two line display showing the current line, so
+    # one can compare character by character if necessary.
+    text $w(BottomText) \
+	    -wrap none \
+	    -borderwidth 1 \
+	    -height 2 \
+	    -width 0
+
+    # this is how we highlight bytes that are different...
+    # the bottom window (lineview) uses reverse video to highlight 
+    # diffs, so we need to figure out what reverse video is, and
+    # define the tag appropriately
+    eval $w(BottomText) tag configure diff $opts(bytetag)
+
     # Set up text tags for the 'current diff' (the one chosen by the 'next'
     # and 'prev' buttons) and any ol' diff region.  All diff regions are
     # given the 'diff' tag initially...  As 'next' and 'prev' are pressed,
@@ -1251,6 +1273,9 @@ proc build-client {} {
         eval "$widget tag configure - $opts(-)"
         eval "$widget tag configure ! $opts(!)"
     }
+
+    # make sure the line view uses the same basic text options
+    eval "$w(BottomText) configure $opts(textopt)"
 
     # build the map...
     # we want the map to be the same width as a scrollbar, so we'll
@@ -1341,6 +1366,7 @@ proc build-client {} {
     grid rowconfigure $w(client) 0 -weight 0
     grid rowconfigure $w(client) 1 -weight 1
     grid rowconfigure $w(client) 2 -weight 0
+    grid rowconfigure $w(client) 3 -weight 0
 
     grid columnconfigure $w(client) 0 -weight 1
     grid columnconfigure $w(client) 1 -weight 0
@@ -1357,8 +1383,59 @@ proc build-client {} {
     do-show-map
     do-show-changebars
     do-show-linenumbers
+    do-show-lineview
     do-show-map
 
+    rename $w(RightText) $w(RightText)_
+    rename $w(LeftText) $w(LeftText)_
+
+    proc $w(RightText) {command args} [info body text-widget-proc]
+    proc $w(LeftText)  {command args} [info body text-widget-proc]
+	
+}
+
+###############################################################################
+# this proc isn't used as-is -- the body is used as the replacement
+# body for the left and right widget procs. The purpose is to catch
+# when the insertion point changes so we can update the line comparison
+# window
+###############################################################################
+
+proc text-widget-proc {command args} {
+    global w
+    set real "[lindex [info level [info level]] 0]_"
+    set result [eval $real $command $args]
+    if {$command == "mark"} {
+	if {[lindex $args 0] == "set" && [lindex $args 1] == "insert"} {
+	    set i [lindex $args 2]
+	    set i0 "$i linestart"
+	    set i1 "$i lineend"
+	    set left  [$w(LeftText)_ get $i0 $i1]
+	    set right [$w(RightText)_ get $i0 $i1]
+	    $w(BottomText) delete 1.0 end
+	    $w(BottomText) insert end "< $left\n> $right"
+	    # find characters that are different, and underline them
+	    if {$left != $right} {
+		set left [split $left {}]
+		set right [split $right {}]
+
+		# n.b. we set c to an offset equal to whatever we have
+		# prepended to the data...
+		set c 2
+
+		foreach l $left r $right {
+		    if {[string compare $l $r] != 0} {
+			$w(BottomText) tag add diff 1.$c "1.$c+1c"
+			$w(BottomText) tag add diff 2.$c "2.$c+1c"
+		    }
+		    incr c
+		}
+		$w(BottomText) tag remove diff "1.0 lineend"
+		$w(BottomText) tag remove diff "2.0 lineend"
+	    }
+	}
+    } 
+    return $result
 }
 
 ###############################################################################
@@ -1595,7 +1672,7 @@ proc build-menubar {} {
         $w(menubar) add cascade -label "File"  -menu $fileMenu  -underline 0
         $w(menubar) add cascade -label "Edit"  -menu $editMenu  -underline 0
         $w(menubar) add cascade -label "View"  -menu $viewMenu  -underline 0
-	$w(menubar) add cascade -label "Mark" -menu $markMenu  -underline 3
+	$w(menubar) add cascade -label "Mark"  -menu $markMenu  -underline 3
         $w(menubar) add cascade -label "Merge" -menu $mergeMenu -underline 0
         $w(menubar) add cascade -label "Help"  -menu $helpMenu  -underline 0
 
@@ -1615,12 +1692,12 @@ proc build-menubar {} {
         set mergeMenu $mergeButton.window
 	set markMenu  $markButton.marks
 
-        menubutton $fileButton -text "File" -menu $fileMenu -underline 0
-        menubutton $editButton -text "Edit" -menu $editMenu -underline 0
-        menubutton $viewButton -text "View" -menu $viewMenu -underline 0
-        menubutton $helpButton -text "Help" -menu $helpMenu -underline 0
+        menubutton $fileButton  -text "File"  -menu $fileMenu  -underline 0
+        menubutton $editButton  -text "Edit"  -menu $editMenu  -underline 0
+        menubutton $viewButton  -text "View"  -menu $viewMenu  -underline 0
+        menubutton $helpButton  -text "Help"  -menu $helpMenu  -underline 0
         menubutton $mergeButton -text "Merge" -menu $mergeMenu -underline 0
-	menubutton $markButton  -text "Mark" -menu $markMenu  -underline 3
+	menubutton $markButton  -text "Mark"  -menu $markMenu  -underline 3
 
         pack $fileButton $editButton $viewButton $markButton $mergeButton \
                 -side left -fill none -expand n
@@ -1644,9 +1721,11 @@ proc build-menubar {} {
     # Mark menu...
     menu $markMenu
     $markMenu add command -label "Mark Current Diff" \
-	    -command [list diffmark set]
+	    -command [list diffmark set] \
+	    -underline 0
     $markMenu add command -label "Clear Current Diff Mark" \
-	    -command [list diffmark clear]
+	    -command [list diffmark clear] \
+	    -underline 0
 
     set "g(tooltip,Mark Current Diff)"  \
 	    "Create a marker for the current difference record"
@@ -1666,19 +1745,20 @@ proc build-menubar {} {
             -command recompute-diff
     $fileMenu add command \
             -label "Write Report..." \
-            -command [list write-report popup]
+            -command [list write-report popup] \
+	    -underline 0
     $fileMenu add separator
     $fileMenu add command \
             -label "Exit" \
             -underline 1 \
             -command do-exit
-
+    
     set "g(tooltip,Exit)" "Exit $g(name)"
     set "g(tooltip,Recompute Diffs)" \
             "Recompute and redisplay the difference records."
     set "g(tooltip,Write Report...)" \
             "Write the diff records to a file"
-
+    
     # Edit menu...  If you change, add or remove labels, be sure and
     # update the tooltips.
     menu $editMenu
@@ -1687,9 +1767,11 @@ proc build-menubar {} {
     $editMenu add command -label "Find..." -underline 0 -command show-find
     $editMenu add separator
     $editMenu add command -label "Edit File 1" \
-        -command {global g w; set g(activeWindow) $w(LeftText) ; do-edit}
+	    -command {global g w; set g(activeWindow) $w(LeftText) ; do-edit} \
+	    -underline 10
     $editMenu add command -label "Edit File 2" \
-        -command {global g w; set g(activeWindow) $w(RightText) ; do-edit}
+	    -command {global g w; set g(activeWindow) $w(RightText) ; do-edit} \
+	    -underline 10
     $editMenu add separator
     $editMenu add command \
             -label "Preferences..." \
@@ -1718,15 +1800,21 @@ proc build-menubar {} {
 
     $viewMenu add checkbutton \
             -label "Show Change Bars" \
-            -underline 0 \
+            -underline 12 \
             -variable opts(showcbs) \
             -command do-show-changebars
 
     $viewMenu add checkbutton \
             -label "Show Diff Map" \
-            -underline 0 \
+            -underline 5 \
             -variable opts(showmap) \
             -command do-show-map
+
+    $viewMenu add checkbutton \
+	    -label "Show Line Comparison" \
+	    -underline 11 \
+	    -variable opts(showlineview) \
+	    -command do-show-lineview
 
     $viewMenu add separator
 
@@ -1770,6 +1858,8 @@ proc build-menubar {} {
             -command { move last } \
             -accelerator "L"
 
+    set "g(tooltip,Show Line Comparison)" \
+	    "If set, show the current line comparison window"
     set "g(tooltip,Show Change Bars)" \
             "If set, show the changebar column for each line of each file"
     set "g(tooltip,Show Line Numbers)"  \
@@ -1963,7 +2053,7 @@ proc build-toolbar {} {
     pack $toolbar.sep2 -side left -fill y -pady 2 -padx 2
     pack $mergeChoiceLbl $mergeChoice1 $mergeChoice2  -side left -padx 2
     pack $toolbar.sep5 -side left -fill y -pady 2 -padx 3
-    pack $firstDiff $prevDiff $nextDiff $lastDiff \
+    pack $firstDiff $lastDiff $prevDiff $nextDiff \
             -side left  -pady 2 -padx 0
     pack $toolbar.sep3 -side left -fill y -pady 2 -padx 2
     pack $centerDiffs -side left  -pady 2 -padx 0
@@ -2241,6 +2331,11 @@ proc map-move-thumb {y1 y2} {
 
 ###############################################################################
 # Bind keys for Next, Prev, Center, Merge choices 1 and 2
+#
+# N.B. This is GROSS! It might have been necessary in earlier versions,
+# but now I think it needs a serious rewriite. We are now overriding
+# the text widget, so we can probably just disable the insert and delete
+# commands, and use something like insert_ and delete_ internally.
 ###############################################################################
 proc common-navigation {args} {
     global w
@@ -2254,14 +2349,22 @@ proc common-navigation {args} {
         # only disable keys that get inserted, but that's difficult
         # to do, and this works almost as well...
         bind $widget <KeyPress> {break};
+	bind $widget <Alt-KeyPress> {continue};
         bind $widget <<Paste>> {break};
 
         # ... but now we need to restore some navigation key bindings
-        # which got lost because we disable all keys.
+        # which got lost because we disable all keys. Since we are 
+	# attaching bindings that duplicate class bindings, we need
+	# to be sure and include the break, so the events don't fire
+	# twice (once for the widget, once for the class). There is
+	# probably a much better way to do all this, but I'm too 
+	# lazy to figure it out...
         foreach event [list Next Prior Up Down Left Right Home End] {
             foreach modifier [list {} Shift Control Shift-Control] {
-                bind $widget "<${modifier}${event}>" \
-                        [bind Text "<${modifier}${event}>"]
+		set binding [bind Text <${modifier}${event}>]
+		if {[string length $binding] > 0} {
+		    bind $widget "<${modifier}${event}>" "${binding};break"
+		}
             }
         }
 
@@ -2479,7 +2582,7 @@ proc customize {} {
     # Appearance
     set frame $w(preferences).fAppearance
     set count 0
-    foreach key {textopt difftag deltag instag chgtag currtag} {
+    foreach key {textopt difftag deltag instag chgtag currtag bytetag} {
         label $frame.l$count -text "$pref($key): " -anchor w
         set tmpopts($key) $opts($key)
         entry $frame.e$count \
@@ -2512,15 +2615,15 @@ proc customize {} {
     # Option fields
     # Note that the order of the list is used to determine
     # the layout. So, if you add something to the list pay
-    # attention to how if affects things.
+    # attention to how it affects things.
     #
     # an x means an empty column; a - means an empty row
     set col 0
     foreach key [list \
-            showln       tagln      \
-            showcbs      tagcbs     \
-            showmap      colorcbs   \
-            x            tagtext    \
+            showln        tagln      \
+            showcbs       tagcbs     \
+            showmap       colorcbs   \
+            showlineview  tagtext    \
             -                      ] {
 
         if {$key == "x"} {
@@ -2601,6 +2704,7 @@ proc customize-initLabels {} {
 
     set pref(diffcmd)  {diff command}
     set pref(textopt)  {Text widget options}
+    set pref(bytetag)  {Tag options for characters in line view}
     set pref(difftag)  {Tag options for diff regions}
     set pref(currtag)  {Tag options for the current diff region}
     set pref(deltag)   {Tag options for deleted diff region}
@@ -2611,6 +2715,7 @@ proc customize-initLabels {} {
     set pref(editor)   {Program for editing files}
 
     set pref(fancyButtons) {Fancy toolbar buttons}
+    set pref(showlineview)  {Show current line comparison window}
     set pref(showmap)    {Show graphical map of diffs}
     set pref(showln)     {Show line numbers}
     set pref(showcbs)    {Show change bars}
@@ -2636,16 +2741,19 @@ proc apply {} {
     global opts
     global tmpopts
     global w
+    global pref
 
     if {! [file isdirectory $tmpopts(tmpdir)]} {
         do-error "Invalid temporary directory $tmpopts(tmpdir)"
     }
 
-    if {[catch "$w(LeftText) configure $tmpopts(textopt)
-                $w(RightText) configure $tmpopts(textopt)"]} {
-        do-error "Invalid settings for text widget: \n\n$tmpopts(textopt)"
-        eval "$w(LeftText) configure $opts(textopt)"
-        eval "$w(LeftInfo) configure $opts(textopt)"
+    if {[catch "$w(LeftText) configure $tmpopts(textopt) 
+                $w(RightText) configure $tmpopts(textopt)
+                $w(BottomText) configure $tmpopts(textopt)"]} {
+        do-error "Invalid text widget setting: \n\n'$tmpopts(textopt)'"
+        eval "$w(LeftText)   configure $opts(textopt)"
+        eval "$w(RightText)  configure $opts(textopt)"
+        eval "$w(BottomText) configure $opts(textopt)"
         return
     }
 
@@ -2672,16 +2780,25 @@ proc apply {} {
         foreach win [list $w(LeftText)  $w(LeftInfo)  $w(LeftCB) \
                           $w(RightText) $w(RightInfo) $w(RightCB)] {
             if {[catch "$win tag configure $tag $tmpopts($tag)"]} {
-                do-error "Invalid settings\n\n$tmpopts($tag)"
+                do-error "Invalid settings for \"$pref($tag)\":\
+			\n\n'$tmpopts($tag)' is not a valid option string"
                 eval "$win tag configure $tag $opts($tag)"
                 return
             }
         }
     }
 
+    if {[catch "$w(BottomText) tag configure diff $tmpopts(bytetag)"]} {
+	do-error "Invalid settings for \"$pref(bytetag)\": \
+		\n\n'$tmpopts(bytetag)' is not a valid option string"
+	eval "$w(BottomText) tag configure diff $opts(bytetag)"
+	return
+    }
+
     # set opts to the values from tmpopts
     foreach key {diffcmd textopt difftag currtag deltag instag chgtag \
-                 tmpdir editor showmap showln showcbs autocenter syncscroll \
+                 tmpdir editor showmap showln showcbs showlineview \
+		 autocenter syncscroll \
                  tagln tagcbs tagtext autoselect toolbarIcons \
                  geometry fancyButtons colorcbs} {
         set opts($key) $tmpopts($key)
@@ -2696,6 +2813,7 @@ proc apply {} {
     do-show-linenumbers
     do-show-changebars
     do-show-map
+    do-show-lineview
 }
 
 ###############################################################################
@@ -2722,8 +2840,9 @@ proc save {} {
     puts $fid "set prefsFileVersion {$g(version)}\n"
 
     # now, put all of the preferences in the file
-    foreach key {diffcmd textopt difftag currtag deltag instag \
-                 chgtag showmap showln showcbs autocenter syncscroll \
+    foreach key {diffcmd textopt difftag currtag deltag instag bytetag \
+                 chgtag showmap showln showcbs showlineview \
+		 autocenter syncscroll \
                  fancyButtons geometry editor colorcbs autoselect \
                  tagln tagcbs tagtext toolbarIcons } {
         regsub "\n" $pref($key) "\n# " comment
@@ -2744,7 +2863,7 @@ proc save {} {
     puts $fid "# performed. Use this code to customize the interface if"
     puts $fid "# you so desire."
     puts $fid "#  "
-    puts $fid "# Even though you can't (as of version 3.02) edit this "
+    puts $fid "# Even though you can't (as of version 3.03) edit this "
     puts $fid "# code via the preferences dialog, it will be automatically"
     puts $fid "# saved and restored if you do a SAVE from that dialog."
     puts $fid ""
@@ -2852,7 +2971,7 @@ proc vscroll-sync {windowlist id y0 y1} {
             set bottomline [$w(RightText) index @0,10000]
             foreach {line s1 e1 s2 e2 type} $g(scrdiff,$i) {}
             if {$s1 >= $topline && $s1 <= $bottomline} {
-                move $i 0 0
+                move $i 0 1
             }
         }
     }
@@ -2993,6 +3112,23 @@ proc map-scroll {y} {
 
     if {$g(showmerge)} {
         merge-center
+    }
+}
+
+###############################################################################
+# Toggle showing the line comparison window
+###############################################################################
+
+proc do-show-lineview {{showLineview {}}} {
+    global opts
+    global w
+
+    if {$showLineview != {}} {set opts(showlineview) $showLineview}
+
+    if {$opts(showlineview)} {
+	grid $w(BottomText) -row 3 -column 0 -sticky ew   -columnspan 4
+    } else {
+        grid forget $w(BottomText)
     }
 }
 
@@ -3307,8 +3443,6 @@ proc merge-select-version {pos oldversion newversion} {
     }
 
     # Screen coordinates
-#    scan $g(scrdiff,$pos) "%s %d %d %d %d %s" \
-#        thisdiff s(1) e(1) s(2) e(2) type
     foreach {thisdiff s(1) e(1) s(2) e(2) type} $g(scrdiff,$pos) {}
 
     # Get the text directly from window
@@ -3417,7 +3551,7 @@ proc add-lines {pos} {
     # Figure out what kind of diff we're dealing with
     switch $type {
         "a" {
-            set lefttext  "-" ;# insert
+            set lefttext  " " ;# insert
             set righttext "+"
             set idx 1
             set count [expr {$size(2) + 1}]
@@ -3427,8 +3561,8 @@ proc add-lines {pos} {
         }
 
         "d" {
-            set lefttext  "+" ;# delete
-            set righttext "-"
+            set lefttext  "-" ;# delete
+            set righttext " "
             set idx 2
             set count [expr {$size(1) + 1}]
 
@@ -3531,8 +3665,8 @@ proc set-tag {pos newtag {oldtag ""} {setpos 0}} {
     }
 
     switch $dt {
-        "d" { set coltag deltag; set rcbtag "-"; set lcbtag "+" }
-        "a" { set coltag instag; set rcbtag "+"; set lcbtag "-" }
+        "d" { set coltag deltag; set rcbtag " "; set lcbtag "-" }
+        "a" { set coltag instag; set rcbtag "+"; set lcbtag " " }
         "c" { set coltag chgtag; set rcbtag "!"; set lcbtag "!" }
     }
 
@@ -3624,7 +3758,7 @@ proc moveTo {window value} {
     # we know that the value is prefixed by the nunber/index of
     # the diff the user wants. So, just grab that out of the string
     regexp {([0-9]+) *:} $value matchVar index
-    move $index 0
+    move $index 0 1
 }
 
 ###############################################################################
@@ -3640,7 +3774,6 @@ proc map-seek {y} {
     # Show text corresponding to map;
     $w(RightText) yview moveto $yview
 }
-
 
 ###############################################################################
 # Move the "current" diff indicator (i.e. go to the next or previous diff
@@ -4023,7 +4156,7 @@ proc do-new-diff {args} {
         # do the diff
         do-diff
 
-        move first
+        move first 1 1
 
         set ret 1
     }
@@ -4044,6 +4177,7 @@ proc remark-diffs {} {
     global g
     global w
     global opts
+    global pref
 
     # delete all known tags.
     foreach window [list $w(LeftText) $w(LeftInfo) $w(LeftCB) \
@@ -4057,7 +4191,8 @@ proc remark-diffs {} {
         foreach win [list $w(LeftText)  $w(LeftInfo)  $w(LeftCB) \
                           $w(RightText) $w(RightInfo) $w(RightCB)] {
             if {[catch "$win tag configure $tag $opts($tag)"]} {
-                do-error "Invalid settings\n\n$opts($tag)"
+                do-error "Invalid settings for \"$pref($tag)\":\
+			\n\n'$opts($tag)' is not a valid option string."
                 eval "$win tag configure $tag $opts($tag)"
                 return
             }
@@ -4177,7 +4312,7 @@ proc rediff {} {
 
     if {[mark-diffs]} {
         set g(pos) 1
-        move 1 0
+        move 1 0 1
         buttons normal
     } else {
         after idle {show-info "Files are identical."}
@@ -4246,7 +4381,7 @@ proc recompute-diff {} {
     set current $g(pos)
 
     do-diff
-    move $current 0
+    move $current 0 1
 
     update-display
 }
@@ -4279,6 +4414,7 @@ proc do-diff {} {
             set g(mapheight) -1
             map-resize
         }
+	
     } output]
 
     check-error $result $output
@@ -4304,6 +4440,7 @@ proc main {} {
     wipe
 
     create-display
+
     update-display
 
     update
@@ -4324,7 +4461,11 @@ proc main {} {
 
     eval do-new-diff $argv
 
-    move first
+    move first 1 1
+
+    # this forces all of the various scrolling windows (line numbers,
+    # change bars, etc) to get in sync.
+    eval vscroll-sync {[list $w(RightInfo)} $w(LeftInfo)] 2 [$w(RightText) yview]
 
     wm deiconify .
     update idletasks
@@ -4459,6 +4600,7 @@ proc newDiff {command args} {
 
             wm deiconify $w(newDiffPopup)
             raise $w(newDiffPopup)
+	    focus $w(newDiffPopup,entry1)
             tkwait variable g(newDiffArgs)
             wm withdraw $w(newDiffPopup)
 
@@ -4481,16 +4623,18 @@ proc newDiff {command args} {
                         tk_messageBox \
                                 -icon warning \
                                 -title "File does not exist" \
-                                -message "The file $f1 does not exist" \
+                                -message "The original file '$f1' does not exist" \
                                 -type ok
+			focus $w(newDiffPopup,entry1)
                         return
                     }
                     if {![file exists $f2]} {
                         tk_messageBox \
                                 -icon warning \
                                 -title "File does not exist" \
-                                -message "The file $f2 does not exist" \
+                                -message "The revised file '$f2' does not exist" \
                                 -type ok
+			focus $w(newDiffPopup,entry2)
                         return
                     }
                     # setting this variable will cause popup
@@ -4556,6 +4700,9 @@ proc newDiff {command args} {
 
             entry $simple.e1 -textvariable g(newDiff,simple,original)
             entry $simple.e2 -textvariable g(newDiff,simple,revision)
+
+	    set w(newDiffPopup,entry1) $simple.e1
+	    set w(newDiffPopup,entry2) $simple.e2
 
             set g(newDiff,simple,original) $finfo(pth,1)
             set g(newDiff,simple,revision) $finfo(pth,2)
@@ -4973,6 +5120,8 @@ The top row contains the File, Edit, View, Mark, Merge and Help menus. The secon
 
 The left-most text widget displays the contents of <cmp>FILE1</cmp>, the most recently checked-in revision, <cmp>REV</cmp> or <cmp>REV1</cmp>, respectively (as per the startup options described in the "On Command Line" help). The right-most widget displays the contents of <cmp>FILE2</cmp>, <cmp>FILE</cmp> or <cmp>REV2</cmp>, respectively. Clicking the right mouse button over either of these windows will give you a context sensitive menu with actions that will act on the window you clicked over. For example, if you click right over the right hand window and select "Edit", the file displayed on the right hand side will be loaded into a text editor.
 
+At the bottom of the display is a two line window called the "Line Comparison" window. This will show the "current line" from the left and right windows, one on top of the other. The "current line" is defined by the line that has the blinking insertion cursor, which can be set by merely clicking on any line in the display. This window may be hidden if the <btn>View</btn> menu item <btn>Show Line Comparison</btn> is deselected.
+
 All difference regions (DRs) are highlighted to set them apart from the surrounding text. The <itl>current difference region</itl>, or <bld>CDR</bld>, is further set apart so that it can be correlated to its partner in the other text widget (that is, the CDR on the left matches the CDR on the right).
 
 <hdr>Changing the CDR</hdr>
@@ -4995,7 +5144,7 @@ The <btn>New...</btn> button displays a dialog where you may choose two files to
 
 3. From the <btn>View</btn> menu:
 
-<btn>Show Line Numbers</btn> toggles the display of line numbers in the text widgets. If <btn>Synchronize Scrollbars</btn> is on, the left and right text widgets are synchronized i.e. scrolling one of the windows scrolls the other. If <btn>Auto Center</btn> is on, pressing the Next or Prev buttons centers the new CDR automatically. The <btn>Show Diff Map</btn> toggles the display of the diff map (see below) on or off. <btn>Show Merge Preview</btn> shows or hides the merge preview (see below).
+<btn>Show Line Numbers</btn> toggles the display of line numbers in the text widgets. If <btn>Synchronize Scrollbars</btn> is on, the left and right text widgets are synchronized i.e. scrolling one of the windows scrolls the other. If <btn>Auto Center</btn> is on, pressing the Next or Prev buttons centers the new CDR automatically. <btn>Show Diff Map</btn> toggles the display of the diff map (see below) on or off. <btn>Show Merge Preview</btn> shows or hides the merge preview (see below). <btn>Show Line Comparison</btn> toggles the display of the "line comparison" window at the bottom of the display.
 
 4. From the <btn>Mark</btn> menu:
 
@@ -5182,6 +5331,13 @@ If set, colorized, graphical "diff map" will be displayed between the two files,
 If not set, the diff map will not be shown.
 
 
+<bld>$pref(showlineview)</bld>
+
+If set, show a window at the bottom of the display that shows the current line from each file, one on top of the other. This window is most useful to do a byte-by-byte comparison of a line that has changed.
+
+If not set, the window will not be shown.
+
+
 <bld>$pref(tagtext)</bld>
 
 If set, the file contents will be highlighted with the options defined in the Appearance section of the preferences.
@@ -5227,6 +5383,10 @@ This is a list of Tk text widget tag options that are applied to regions that ha
 <bld>$pref(currtag)</bld>
 
 This is a list of Tk text widget tag options that are applied to the current diff region. These tags have a higher priority than those for all diff regions, and a higher priority than the change, inserted and deleted diff regions.
+
+<bld>$pref(bytetag)</bld>
+
+This is a list of Tk text widget tag options that are applied to individual characters in the line view. These options do not affect the main text displays.
 
 
 
