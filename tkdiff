@@ -3,7 +3,7 @@
 # the next line restarts using wish \
 exec wish "$0" -- ${1+"$@"}
 
-# $Id: tkdiff,v 1.5 2003-01-12 20:20:49 klassa Exp $
+# $Id: tkdiff,v 1.6 2003-01-12 20:21:34 klassa Exp $
 
 ###############################################################################
 #
@@ -56,7 +56,7 @@ wm withdraw .
 
 # set a couple o' globals that we might need sooner than later
 set g(name) "TkDiff"
-set g(version) "3.01"
+set g(version) "3.02"
 set g(nativeMenus) 1
 
 # ok, I'll admit -- this is a personal preference. I suppose I ought to
@@ -172,6 +172,7 @@ array set opts {
     autocenter  1
     autoselect  0
     colorcbs    0
+    customCode  {}
     diffcmd     "diff"
     editor      ""
     geometry    "80x30"
@@ -179,6 +180,7 @@ array set opts {
     showln      1
     showmap     1
     syncscroll  1
+    toolbarIcons 1
     tagcbs      0
     tagln       0
     tagtext     1
@@ -951,11 +953,28 @@ proc create-display {} {
     bind Text <Tab>       {continue}
     bind Text <Shift-Tab> {continue}
 
+    # if the user toggles scrollbar syncing, we want to make sure 
+    # they sync up immediately
+    trace variable opts(syncscroll) w toggleSyncScroll
     wm deiconify .
     focus -force $w(LeftText)
     update idletasks
 
     set g(started) 1
+}
+
+###############################################################################
+# when the user changes the "sync scrollbars" option, we want to 
+# sync up the left scrollbar with the right if they turn the option
+# on
+###############################################################################
+proc toggleSyncScroll {args} {
+    global opts
+    global w
+
+    if {$opts(syncscroll) == 1} {
+	eval vscroll-sync {{}} [$w(RightText) yview]
+    }
 }
 
 ###############################################################################
@@ -1148,7 +1167,7 @@ proc build-client {} {
             -height $height \
             -borderwidth  0 \
             -setgrid 1 \
-            -yscrollcommand [list vscroll-sync 1] \
+            -yscrollcommand [list vscroll-sync "$w(LeftInfo) $w(LeftCB)" 1] \
             -xscrollcommand [list hscroll-sync 1]
 
     text $w(RightText) \
@@ -1158,7 +1177,7 @@ proc build-client {} {
             -height $height \
             -borderwidth  0 \
             -setgrid 1 \
-            -yscrollcommand [list vscroll-sync 2] \
+            -yscrollcommand [list vscroll-sync "$w(RightInfo) $w(RightCB)" 2] \
             -xscrollcommand [list hscroll-sync 2]
 
     text $w(LeftInfo) \
@@ -1167,7 +1186,7 @@ proc build-client {} {
             -width 6 \
             -borderwidth 0 \
             -setgrid 1 \
-            -yscrollcommand [list vscroll-sync 1]
+            -yscrollcommand [list vscroll-sync "$w(LeftCB) $w(LeftText)" 1]
 
     text $w(RightInfo) \
             -height 0 \
@@ -1175,7 +1194,7 @@ proc build-client {} {
             -width 6 \
             -borderwidth 0 \
             -setgrid 1 \
-            -yscrollcommand [list vscroll-sync 2]
+            -yscrollcommand [list vscroll-sync "$w(RightCB) $w(RightText)" 2]
 
     # each and every line in a text window will have a corresponding line
     # in this widget. And each line in this widget will be composed of
@@ -1189,7 +1208,7 @@ proc build-client {} {
             -foreground white \
             -width 1 \
             -borderwidth 0 \
-            -yscrollcommand [list vscroll-sync 1]
+            -yscrollcommand [list vscroll-sync "$w(LeftInfo) $w(LeftText)" 1]
 
     text $w(RightCB) \
             -height 0 \
@@ -1200,7 +1219,7 @@ proc build-client {} {
             -foreground white \
             -width 1 \
             -borderwidth 0 \
-            -yscrollcommand [list vscroll-sync 2]
+            -yscrollcommand [list vscroll-sync "$w(RightInfo) $w(RightText)" 2]
 
     # Set up text tags for the 'current diff' (the one chosen by the 'next'
     # and 'prev' buttons) and any ol' diff region.  All diff regions are
@@ -1477,6 +1496,7 @@ proc show-find {} {
     centerWindow $w(findDialog)
     wm deiconify $w(findDialog)
     after idle focus $w(findEntry)
+
 }
 
 ###############################################################################
@@ -1569,13 +1589,15 @@ proc build-menubar {} {
         set viewMenu   $w(menubar).view
         set helpMenu   $w(menubar).help
         set editMenu   $w(menubar).edit
-        set mergeMenu   $w(menubar).window
+        set mergeMenu  $w(menubar).window
+	set markMenu   $w(menubar).marks
 
-        $w(menubar) add cascade -label "File" -menu $fileMenu -underline 0
-        $w(menubar) add cascade -label "Edit" -menu $editMenu -underline 0
-        $w(menubar) add cascade -label "View" -menu $viewMenu -underline 0
+        $w(menubar) add cascade -label "File"  -menu $fileMenu  -underline 0
+        $w(menubar) add cascade -label "Edit"  -menu $editMenu  -underline 0
+        $w(menubar) add cascade -label "View"  -menu $viewMenu  -underline 0
+	$w(menubar) add cascade -label "Mark" -menu $markMenu  -underline 3
         $w(menubar) add cascade -label "Merge" -menu $mergeMenu -underline 0
-        $w(menubar) add cascade -label "Help" -menu $helpMenu -underline 0
+        $w(menubar) add cascade -label "Help"  -menu $helpMenu  -underline 0
 
     } else {
         # these are shorthand used only in this routine...
@@ -1584,20 +1606,23 @@ proc build-menubar {} {
         set helpButton $menubar.helpButton
         set editButton $menubar.editButton
         set mergeButton $menubar.mergeButton
+	set markButton  $menubar.markButton
 
         set fileMenu   $fileButton.file
         set viewMenu   $viewButton.view
         set helpMenu   $helpButton.help
         set editMenu   $editButton.edit
         set mergeMenu $mergeButton.window
+	set markMenu  $markButton.marks
 
         menubutton $fileButton -text "File" -menu $fileMenu -underline 0
         menubutton $editButton -text "Edit" -menu $editMenu -underline 0
         menubutton $viewButton -text "View" -menu $viewMenu -underline 0
         menubutton $helpButton -text "Help" -menu $helpMenu -underline 0
         menubutton $mergeButton -text "Merge" -menu $mergeMenu -underline 0
+	menubutton $markButton  -text "Mark" -menu $markMenu  -underline 3
 
-        pack $fileButton $editButton $viewButton $mergeButton \
+        pack $fileButton $editButton $viewButton $markButton $mergeButton \
                 -side left -fill none -expand n
         if {$::tcl_platform(platform) == "windows"} {
             pack $helpButton -side left -fill none -expand n
@@ -1612,8 +1637,21 @@ proc build-menubar {} {
     set w(helpMenu) $helpMenu
     set w(editMenu) $editMenu
     set w(mergeMenu) $mergeMenu
+    set w(markMenu)  $markMenu
 
     # Now, the menus...
+
+    # Mark menu...
+    menu $markMenu
+    $markMenu add command -label "Mark Current Diff" \
+	    -command [list diffmark set]
+    $markMenu add command -label "Clear Current Diff Mark" \
+	    -command [list diffmark clear]
+
+    set "g(tooltip,Mark Current Diff)"  \
+	    "Create a marker for the current difference record"
+    set "g(tooltip,Clear Current Diff Mark)" \
+	    "Clear the marker for the current difference record"
 
     # File menu...
     menu $fileMenu
@@ -1782,6 +1820,7 @@ proc build-menubar {} {
     bind $fileMenu  <<MenuSelect>> {showTooltip menu %W}
     bind $editMenu  <<MenuSelect>> {showTooltip menu %W}
     bind $viewMenu  <<MenuSelect>> {showTooltip menu %W}
+    bind $markMenu  <<MenuSelect>> {showTooltip menu %W}
     bind $mergeMenu <<MenuSelect>> {showTooltip menu %W}
     bind $helpMenu  <<MenuSelect>> {showTooltip menu %W}
 
@@ -1840,6 +1879,9 @@ proc build-toolbar {} {
     set mergeChoiceLbl  $toolbar.mlabel
     set currentPos      $toolbar.cp
     set combo           $toolbar.combo
+    set rediff          $toolbar.rediff
+    set markclear       $toolbar.clearMark
+    set markset         $toolbar.setMark
 
     # these, however, are used in other places..
     set w(find)             $find
@@ -1853,6 +1895,9 @@ proc build-toolbar {} {
     set w(currentPos)       $currentPos
     set w(combo)            $combo
     set w(mergeChoiceLabel) $mergeChoiceLbl
+    set w(rediff)           $rediff
+    set w(markSet)          $markset
+    set w(markClear)        $markclear
 
     label $currentPos -textvariable g(pos)
 
@@ -1862,6 +1907,12 @@ proc build-toolbar {} {
     toolsep $toolbar.sep3
     toolsep $toolbar.sep4
     toolsep $toolbar.sep5
+    toolsep $toolbar.sep6
+    toolsep $toolbar.sep7
+    toolsep $toolbar.sep8
+
+    # rediff...
+    toolbutton $rediff -text "Rediff" -width 6 -command recompute-diff
 
     # find...
     toolbutton $find -text "Find" -width 5 -command do-find -bd 1
@@ -1873,10 +1924,16 @@ proc build-toolbar {} {
     toolbutton $lastDiff  -text "Last" -width 5 -command [list move last] -bd 1
     toolbutton $centerDiffs -text "Center" -width 5 -command center -bd 1
 
+    toolbutton $markset -text "Set Mark" \
+	    -width 10 -command [list diffmark set] -bd 1
+    toolbutton $markclear -text "Clear Mark" \
+	    -width 10 -command [list diffmark clear] -bd 1
+
     ::combobox::combobox $combo -editable false -width 30 -command moveTo
 
     # the merge widgets
     radiobutton $mergeChoice2 \
+	    -borderwidth 1 \
             -indicatoron true \
             -text Right \
             -value 2 \
@@ -1884,6 +1941,7 @@ proc build-toolbar {} {
             -command [list do-merge-choice 2] \
             -takefocus 0
     radiobutton $mergeChoice1 \
+	    -borderwidth 1 \
             -indicatoron true \
             -text Left \
             -value 1 \
@@ -1899,18 +1957,26 @@ proc build-toolbar {} {
 
     pack $combo -side left -padx 2
     pack $toolbar.sep1 -side left -fill y -pady 2 -padx 2
+    pack $rediff -side left -padx 2
+    pack $toolbar.sep6 -side left -fill y -pady 2 -padx 2
     pack $find -side left -padx 2
     pack $toolbar.sep2 -side left -fill y -pady 2 -padx 2
+    pack $mergeChoiceLbl $mergeChoice1 $mergeChoice2  -side left -padx 2
+    pack $toolbar.sep5 -side left -fill y -pady 2 -padx 3
     pack $firstDiff $prevDiff $nextDiff $lastDiff \
             -side left  -pady 2 -padx 0
     pack $toolbar.sep3 -side left -fill y -pady 2 -padx 2
     pack $centerDiffs -side left  -pady 2 -padx 0
-    pack $toolbar.sep5 -side left -fill y -pady 2 -padx 2
-    pack $mergeChoiceLbl $mergeChoice1 $mergeChoice2  -side left -padx 2
+    pack $toolbar.sep7 -side left -fill y -pady 2 -padx 2
+    pack $markset $markclear -side left -padx 2
+    pack $toolbar.sep8 -side left -fill y -pady 2 -padx 2
 
     # these bindings provide pseudo-tooltips. Note that if some menu
     # items change, these references need to be updated... Also, we
     # assume the menubar tooltips have already been defined....
+    set g(tooltip,$markset)   $g(tooltip,Mark Current Diff)
+    set g(tooltip,$markclear) $g(tooltip,Clear Current Diff Mark)
+
     set g(tooltip,$combo)       "Shows current difference record; allows you to go to a specific difference."
     set g(tooltip,$prevDiff)    $g(tooltip,Previous Diff);
     set g(tooltip,$nextDiff)    $g(tooltip,Next Diff);
@@ -1918,6 +1984,7 @@ proc build-toolbar {} {
     set g(tooltip,$lastDiff)    $g(tooltip,Last Diff);
     set g(tooltip,$centerDiffs) $g(tooltip,Center Current Diff);
     set g(tooltip,$find)        $g(tooltip,Find...);
+    set g(tooltip,$rediff)      $g(tooltip,Recompute Diffs);
     set g(tooltip,$mergeChoice1) \
             "select the diff record on the left for merging"
     set g(tooltip,$mergeChoice2) \
@@ -1930,6 +1997,64 @@ proc build-toolbar {} {
         bind $widget <Leave>    +[list toolbutton:handleEvent <Leave> %W 0]
         bind $widget <FocusIn>  +[list toolbutton:handleEvent <FocusIn> %W 0]
         bind $widget <FocusOut> +[list toolbutton:handleEvent <FocusOut> %W 0]
+    }
+
+    # this adjusts the image or label on the buttons according to the
+    # user preferences
+    reconfigure-toolbar
+}
+
+proc reconfigure-toolbar {} {
+    global opts
+    global w
+
+    # standard button reliefs
+    foreach button [list prevDiff nextDiff firstDiff lastDiff \
+            centerDiffs find markSet markClear rediff] {
+        if {$opts(fancyButtons)} {
+            $w($button) configure -relief flat
+        } else {
+            $w($button) configure -relief raised
+        }
+    }
+
+    # diff mark buttons relief
+    foreach widget [info commands $w(toolbar).mark*] {
+        if {$opts(fancyButtons)} {
+            $widget configure -relief flat
+        } else {
+            $widget configure -relief raised
+        }
+    }
+	
+    # standard button images and labels
+    foreach button [list prevDiff nextDiff firstDiff lastDiff \
+	    centerDiffs find markSet markClear rediff] {
+	if {$opts(toolbarIcons)} {
+	    $w($button) configure -width 20 -image ${button}Image
+	} else {
+	    if {$button == "markSet" || $button == "markClear"} {
+		$w($button) configure -width 10 -image {} 
+	    } else {
+		$w($button) configure -width 5 -image {} 
+	    }
+	} 
+    }
+
+    # merge choice buttons images and labels
+    if {$opts(toolbarIcons)} {
+	foreach button [list mergeChoice1 mergeChoice2] {
+	    $w($button) configure -indicatoron false -image ${button}Image
+	}
+	# this, in effect, hides the text of the label without
+	# actually destroying it
+	$w(mergeChoiceLabel) configure -image nullImage
+
+    } else {
+	$w(mergeChoiceLabel) configure -image {}
+	foreach button [list mergeChoice1 mergeChoice2] {
+	    $w($button) configure -indicatoron true -image {}
+	}
     }
 }
 
@@ -2168,6 +2293,56 @@ proc common-navigation {args} {
 }
 
 ###############################################################################
+# set or clear a "diff mark" -- a hot button to move to a particular diff
+###############################################################################
+
+proc diffmark {option {diff -1}}  {
+    global g
+    global w
+
+    if {$diff == -1} {
+	set diff $g(pos)
+    }
+
+    set widget $w(toolbar).mark$diff
+
+    switch $option {
+	activate {
+	    move $diff 0 1
+	}
+
+	set {
+	    if {![winfo exists $widget]} {
+		toolbutton $widget \
+			-text "\[$diff\]"  \
+			-command [list diffmark activate $diff] \
+			-bd 1
+		pack $widget -side left -padx 2
+		set g(tooltip,$widget) \
+			"Diff Marker: Jump to diff record number $diff"
+	    }
+	    update-display
+	}
+
+	clear {
+	    if {[winfo exists $widget]} {
+		destroy $widget
+		catch {unset g(tooltip,$widget)}
+	    }
+	    update-display
+	}
+
+	clearall {
+	    foreach widget [info commands $w(toolbar).mark*] {
+		destroy $widget
+		catch {unset g(tooltip,$widget)}
+	    }
+	    update-display
+	}
+    }
+}
+
+###############################################################################
 # Customize the display (among other things).
 ###############################################################################
 
@@ -2239,6 +2414,11 @@ proc customize {} {
     # make sure our labels are defined
     customize-initLabels
 
+    # this is an option that we support internally, but don't give
+    # the user a way to directly edit (right now, anyway). But we 
+    # need to make sure tmpopts knows about it
+    set tmpopts(customCode) $opts(customCode)
+
     # General
     set count 0
     set frame $w(preferences).fGeneral
@@ -2260,7 +2440,7 @@ proc customize {} {
     grid $frame.filler -row $count
     incr count
 
-    foreach key {fancyButtons autocenter syncscroll autoselect} {
+    foreach key {fancyButtons toolbarIcons autocenter syncscroll autoselect} {
         label $frame.l$count -text "$pref($key): " -anchor w
         set tmpopts($key) $opts($key)
         checkbutton $frame.c$count \
@@ -2436,6 +2616,7 @@ proc customize-initLabels {} {
     set pref(showcbs)    {Show change bars}
     set pref(autocenter) {Automatically center current diff region}
     set pref(syncscroll) {Synchronize scrollbars}
+    set pref(toolbarIcons) {Use icons instead of labels in the toolbar}
 
     set pref(colorcbs)   {Color change bars to match the diff map}
     set pref(tagtext)    {Highlight file contents}
@@ -2501,20 +2682,13 @@ proc apply {} {
     # set opts to the values from tmpopts
     foreach key {diffcmd textopt difftag currtag deltag instag chgtag \
                  tmpdir editor showmap showln showcbs autocenter syncscroll \
-                 tagln tagcbs tagtext autoselect \
+                 tagln tagcbs tagtext autoselect toolbarIcons \
                  geometry fancyButtons colorcbs} {
         set opts($key) $tmpopts($key)
     }
 
-    # reconfigure the buttons, since "fancyButtons" may have changed
-    foreach button [list prevDiff nextDiff firstDiff lastDiff \
-            centerDiffs find] {
-        if {$opts(fancyButtons)} {
-            $w($button) configure -relief flat
-        } else {
-            $w($button) configure -relief raised
-        }
-    }
+    # reconfigure the toolbar buttons
+    reconfigure-toolbar
 
     # remark all the diff regions, show (or hide) the line numbers,
     # change bars and diff map, and we are done.
@@ -2551,7 +2725,7 @@ proc save {} {
     foreach key {diffcmd textopt difftag currtag deltag instag \
                  chgtag showmap showln showcbs autocenter syncscroll \
                  fancyButtons geometry editor colorcbs autoselect \
-                 tagln tagcbs tagtext } {
+                 tagln tagcbs tagtext toolbarIcons } {
         regsub "\n" $pref($key) "\n# " comment
         puts $fid "# $comment"
         puts $fid "set opts($key) {$tmpopts($key)}\n"
@@ -2561,6 +2735,23 @@ proc save {} {
 
     puts $fid "# $pref(tmpdir)"
     puts $fid "set opts(tmpdir) \"$tmpdir\"\n"
+
+    # ... and any custom code
+    puts $fid "# custom code"
+    puts $fid "# put any custom code you want to be executed in the"
+    puts $fid "# following block. This code will be automatically executed"
+    puts $fid "# after the GUI has been set up but before the diff is "
+    puts $fid "# performed. Use this code to customize the interface if"
+    puts $fid "# you so desire."
+    puts $fid "#  "
+    puts $fid "# Even though you can't (as of version 3.02) edit this "
+    puts $fid "# code via the preferences dialog, it will be automatically"
+    puts $fid "# saved and restored if you do a SAVE from that dialog."
+    puts $fid ""
+    puts $fid "# Unless you really know what you are doing, it is probably"
+    puts $fid "# wise to leave this unmodified."
+    puts $fid ""
+    puts $fid "set opts(customCode) {\n[string trim $tmpopts(customCode)]\n}\n"
 
     close $fid
 
@@ -2620,42 +2811,34 @@ proc hscroll-sync {id args} {
 # Text has scrolled, update scrollbars and synchronize windows
 ###############################################################################
 
-proc vscroll-sync {id y0 y1} {
+proc vscroll-sync {windowlist id y0 y1} {
     global g opts
     global w
 
-    # we always want to update the scrollbars, since that is
-    # the typical duty of the -yscrollcommand (which this proc
-    # is bound to...)
-    if {$opts(syncscroll) || $id == 1} {
-        $w(LeftVSB) set $y0 $y1
+    if {$id == 1} {
+	$w(LeftVSB) set $y0 $y1
+    } else {
+	$w(RightVSB) set $y0 $y1
     }
 
-    if {$opts(syncscroll) || $id == 2} {
-        $w(RightVSB) set $y0 $y1
-    }
-
-    # if syncing is disabled, we're done.
+    # if syncing is disabled, we're done. This prevents a nasty
+    # set of recursive calls
     if {[info exists g(disableSyncing)]} {
         return
     }
 
-    # move the map's thumb
-    map-move-thumb $y0 $y1
+    # set the flag; this makes sure we only get called once
+    set g(disableSyncing) 1
 
-    if {$opts(syncscroll) || $id == 1} {
-        $w(LeftText) yview moveto $y0
-        $w(LeftInfo) yview moveto $y0
-        $w(LeftCB)   yview moveto $y0
+    # scroll the other windows on the same side as this window
+    foreach window $windowlist {
+	$window yview moveto $y0
     }
 
-    if {$opts(syncscroll) || $id == 2} {
-        $w(RightText) yview moveto $y0
-        $w(RightInfo) yview moveto $y0
-        $w(RightCB)   yview moveto $y0
-    }
+    eval map-move-thumb $y0 $y1
 
-    # Select nearest visible diff region
+    # Select nearest visible diff region, if the appropriate
+    # options are set
     if {$opts(syncscroll) && $opts(autoselect) && $g(count) > 0} {
         set winhalf [expr {[winfo height $w(RightText)] / 2}]
         set result [find-diff [expr {int([$w(RightText) index @1,$winhalf])}]]
@@ -2674,14 +2857,30 @@ proc vscroll-sync {id y0 y1} {
         }
     }
 
-    # This flushes all the pending calls to the -yscrollcommand
-    # for each widget. by setting disableSyncing these events
-    # will just get ignored, since by now the view should be
-    # up to date.
-    set g(disableSyncing) 1
-    update idletasks
-    unset g(disableSyncing)
+    # if syncing is turned on, scroll other windows.
+    # Annoyingly, sometimes the *Text windows won't scroll properly,
+    # at least under windows. And I can't for the life of me figure
+    # out why. Maybe a bug in tk?
+    if {$opts(syncscroll)} {
+	if {$id == 1} {
 
+	    $w(RightText) yview moveto $y0
+	    $w(RightInfo) yview moveto $y0
+	    $w(RightCB)   yview moveto $y0
+	    $w(RightVSB)  set $y0 $y1
+
+	} else {
+
+	    $w(LeftText) yview moveto $y0 
+	    $w(LeftInfo) yview moveto $y0
+	    $w(LeftCB)   yview moveto $y0
+	    $w(LeftVSB)  set $y0 $y1
+	}
+    }
+
+    # we apparently automatically process idle events after this
+    # proc is called. Once that is done we'll unset our flag 
+    after idle {catch {unset g(disableSyncing)}}
 
 }
 
@@ -3467,8 +3666,8 @@ proc move {value {relative 1} {setpos 1}} {
     }
 
     # Range check 'pos'.
-    set g(pos) [min $g(pos) $g(count)]
     set g(pos) [max $g(pos) 1]
+    set g(pos) [min $g(pos) $g(count)]
 
     # Set new 'curr' tag
     set g(currdiff) [set-tag $g(pos) currtag "" $setpos]
@@ -3509,6 +3708,9 @@ proc update-display {} {
 
         $w(mergeMenu) entryconfigure "Show*" -state disabled
         $w(mergeMenu) entryconfigure "Write*" -state disabled
+
+	$w(markMenu) entryconfigure "Mark*" -state disabled
+	$w(markMenu) entryconfigure "Clear*" -state disabled
 
     } else {
         # these are always enabled, assuming we have properly
@@ -3593,6 +3795,7 @@ proc update-display {} {
         $w(mergeChoice2)     configure -state normal
         $w(mergeChoiceLabel) configure -state normal
 
+	$w(markMenu) entryconfigure "Mark*" -state normal
 
     } else {
         $w(centerDiffs) configure -state disabled
@@ -3602,7 +3805,21 @@ proc update-display {} {
         $w(mergeChoice1)     configure -state disabled
         $w(mergeChoice2)     configure -state disabled
         $w(mergeChoiceLabel) configure -state disabled
+
+	$w(markMenu) entryconfigure "Mark*" -state disabled
     }
+
+    # the mark clear button should only be enabled if there is 
+    # presently a mark at the current diff record
+    set widget $w(toolbar).mark$g(pos)
+    if {[winfo exists $widget]} {
+	$w(markMenu) entryconfigure "Clear*" -state normal
+	$w(markClear) configure -state normal
+    } else {
+	$w(markMenu) entryconfigure "Clear*" -state disabled
+	$w(markClear) configure -state disabled
+    }
+    
 }
 
 ###############################################################################
@@ -3717,6 +3934,7 @@ proc wipe-window {} {
     $w(combo) list delete 0 end
     buttons disabled
 
+    diffmark clearall
 }
 
 ###############################################################################
@@ -3813,7 +4031,7 @@ proc do-new-diff {args} {
     restore-cursor
 
     update-display
-    unset g(disableSyncing)
+    catch {unset g(disableSyncing)}
 
     return $ret
 }
@@ -4077,6 +4295,7 @@ proc main {} {
     global w
     global g errorInfo
     global startupError
+    global opts
 
     wm withdraw .
     wm protocol . WM_DELETE_WINDOW do-exit
@@ -4086,12 +4305,22 @@ proc main {} {
 
     create-display
     update-display
+
     update
 
     merge-create-window
 
     do-show-linenumbers
     do-show-map
+
+    # evaluate any custom code the user has
+    if {[info exists opts(customCode)]} {
+	if {[catch [list uplevel \#0 $opts(customCode)] error]} {
+	    set startupError "Error in custom code: \n\n$error"
+	} else {
+	    update
+	}
+    }
 
     eval do-new-diff $argv
 
@@ -4660,6 +4889,13 @@ proc do-about {} {
 
 <itl>$g(name)</itl> is a Tcl/Tk front-end to <itl>diff</itl> for Unix and NT, and is Copyright (C) 1994-1998 by John M. Klassa.
 
+Many of the toolbar icons were created by Dean S. Jones and used with his permission. The icons have the following copyright:
+
+Copyright(C) 1998 by Dean S. Jones
+dean@gallant.com
+http://www.gallant.com/icons.htm 
+http://www.javalobby.org/jfa/projects/icons/
+
 <bld>This program is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation; either version 2 of the License, or (at your option) any later version.
 
 This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for more details.
@@ -4733,7 +4969,7 @@ proc do-help {} {
     set text {
 <hdr>Layout</hdr>
 
-The top row contains the File, Edit, View, Merge and Help menus. The second row contains the labels which identify the contents of each text window. Below that is a toolbar which contains navigation and merge selection tools.
+The top row contains the File, Edit, View, Mark, Merge and Help menus. The second row contains the labels which identify the contents of each text window. Below that is a toolbar which contains navigation and merge selection tools.
 
 The left-most text widget displays the contents of <cmp>FILE1</cmp>, the most recently checked-in revision, <cmp>REV</cmp> or <cmp>REV1</cmp>, respectively (as per the startup options described in the "On Command Line" help). The right-most widget displays the contents of <cmp>FILE2</cmp>, <cmp>FILE</cmp> or <cmp>REV2</cmp>, respectively. Clicking the right mouse button over either of these windows will give you a context sensitive menu with actions that will act on the window you clicked over. For example, if you click right over the right hand window and select "Edit", the file displayed on the right hand side will be loaded into a text editor.
 
@@ -4761,15 +4997,19 @@ The <btn>New...</btn> button displays a dialog where you may choose two files to
 
 <btn>Show Line Numbers</btn> toggles the display of line numbers in the text widgets. If <btn>Synchronize Scrollbars</btn> is on, the left and right text widgets are synchronized i.e. scrolling one of the windows scrolls the other. If <btn>Auto Center</btn> is on, pressing the Next or Prev buttons centers the new CDR automatically. The <btn>Show Diff Map</btn> toggles the display of the diff map (see below) on or off. <btn>Show Merge Preview</btn> shows or hides the merge preview (see below).
 
-4. From the <btn>Merge</btn> menu:
+4. From the <btn>Mark</btn> menu:
+
+The <btn>Mark Current Diff</btn> creates a new toolbar button that will jump to the current diff region. The <btn>Clear Current Diff Mark</btn> will remove the toolbar mark button associated with the current diff region, if one exists.
+
+5. From the <btn>Merge</btn> menu:
 
 The <btn>Show Merge Window</btn> button pops up a window with the current merged version of the two files. The <btn>Write Merge File</btn> button will allow you to save the contents of that window to a file.
 
-5. From the <btn>Help</btn> menu:
+6. From the <btn>Help</btn> menu:
 
 The <btn>About $g(name)</btn> button displays copyright and author information. The <btn>On GUI</btn> button generates this window. The <btn>On Command Line</btn> button displays help on the $g(name) command line options. The <btn>On Preferences</btn> button displays help on the user-settable preferences.
 
-6. From the toolbar:
+7. From the toolbar:
 
 The first tool is a dropdown list of all of the differences in a standard diff-type format. You may use this list to go directly to any diff record. The <btn>Next</btn> and <btn>Previous</btn> buttons take you to the "next" and "previous" DR, respectively. The <btn>First</btn> and <btn>Last</btn> buttons take you to the "first" and "last" DR. The <btn>Center</btn> button centers the CDRs in their respective text windows. You can set <btn>Auto Center</btn> in <btn>Preferences</btn> to do this automatically for you as you navigate through the diff records.
 
@@ -4791,6 +5031,10 @@ The cursor, Home, End, PageUp and PageDown keys work as expected, adjusting the 
 <hdr>Scrolling</hdr>
 
 To scroll the text widgets independently, make sure <btn>Synchronize Scrollbars</btn> in <btn>Preferences</btn> is off. If it is on, scrolling any text widget scrolls all others. Scrolling does not change the current diff record (CDR).
+
+<hdr>Diff Marks</hdr>
+
+You can set "markers" at specific diff regions for easier navigation. To do this, click on the <btn>Set Mark</btn> button. It will create a new toolbar button that will jump back to this diff region. To clear a diff mark, go to that diff record and click on the <btn>Clear Mark</btn> button.
 
 <hdr>Diff Map</hdr>
 
@@ -4814,6 +5058,7 @@ Thanks to Wayne Throop for beta testing, and for giving valuable suggestions (an
 
 <bld>Major</bld> thanks also to Bryan Oakley (oakley@channelpoint.com), who made the GUI even more appealing...  Bryan did a <itl>ton</itl> of work, the result of which was the 3.x series.  Dorothy Robinson provided helpful comments and patches for 3.x, too.  Thanks, Bryan and Dorothy!
 
+Thanks to Dean Jones (dean@gallant.com) for permission to use his icons in the toolbar. 
 
 Many, many thanks also to the many others who have written and provided ideas and encouragement and code since <itl>$g(name)</itl> was first released!  I haven't done much coding since the 1.x series; almost every new feature that has come about since then has been the result of volunteer efforts.  Thanks, folks!
 
@@ -4870,6 +5115,13 @@ This defines the default size, in characters of the two text windows. The format
 If set, toolbar buttons will mimic the visual behavior of typical Microsoft Windows applications. Buttons will initially be flat until the cursor moves over them, at which time they will be raised.
 
 If unset, toolbar buttons will always appear raised.
+
+
+<bld>$pref(toolbarIcons)</bld>
+
+If set, the toolbar buttons will use icons instead of text labels.
+
+If unset, the toolbar buttons will use text labels instead of icons.
 
 
 <bld>$pref(autocenter)</bld>
@@ -6568,6 +6820,244 @@ proc ::combobox::widgetName {w} {
 
 
 # end of combobox.tcl
+
+######################################################################
+# icon image data. 
+######################################################################
+image create photo findImage -format gif -data {
+R0lGODdhFAAUAPf/AAAAAIAAAACAAICAAAAAgIAAgACAgMDAwMDcwKbK8P/w1P/isf/Ujv/G
+a/+4SP+qJf+qANySALl6AJZiAHNKAFAyAP/j1P/Hsf+rjv+Pa/9zSP9XJf9VANxJALk9AJYx
+AHMlAFAZAP/U1P+xsf+Ojv9ra/9ISP8lJf4AANwAALkAAJYAAHMAAFAAAP/U4/+xx/+Oq/9r
+j/9Ic/8lV/8AVdwASbkAPZYAMXMAJVAAGf/U8P+x4v+O1P9rxv9IuP8lqv8AqtwAkrkAepYA
+YnMASlAAMv/U//+x//+O//9r//9I//8l//4A/twA3LkAuZYAlnMAc1AAUPDU/+Kx/9SO/8Zr
+/7hI/6ol/6oA/5IA3HoAuWIAlkoAczIAUOPU/8ex/6uO/49r/3NI/1cl/1UA/0kA3D0AuTEA
+liUAcxkAUNTU/7Gx/46O/2tr/0hI/yUl/wAA/gAA3AAAuQAAlgAAcwAAUNTj/7HH/46r/2uP
+/0hz/yVX/wBV/wBJ3AA9uQAxlgAlcwAZUNTw/7Hi/47U/2vG/0i4/yWq/wCq/wCS3AB6uQBi
+lgBKcwAyUNT//7H//47//2v//0j//yX//wD+/gDc3AC5uQCWlgBzcwBQUNT/8LH/4o7/1Gv/
+xkj/uCX/qgD/qgDckgC5egCWYgBzSgBQMtT/47H/x47/q2v/j0j/cyX/VwD/VQDcSQC5PQCW
+MQBzJQBQGdT/1LH/sY7/jmv/a0j/SCX/JQD+AADcAAC5AACWAABzAABQAOP/1Mf/sav/jo//
+a3P/SFf/JVX/AEncAD25ADGWACVzABlQAPD/1OL/sdT/jsb/a7j/SKr/Jar/AJLcAHq5AGKW
+AEpzADJQAP//1P//sf//jv//a///SP//Jf7+ANzcALm5AJaWAHNzAFBQAPLy8ubm5tra2s7O
+zsLCwra2tqqqqp6enpKSkoaGhnp6em5ubmJiYlZWVkpKSj4+PjIyMiYmJhoaGg4ODv/78KCg
+pICAgP8AAAD/AP//AAAA//8A/wD//////yH5BAEAAAEALAAAAAAUABQAQAjUAAMIHEiwoEF3
+AOQpXMiQIQB3ARC6a6fO3buHAiVWfAcPYwB1AN6pa/fQnUkAIy+qEwiy3bp07DqaPPmS3TqS
+Kz/SA8ATQDyB8XoCoJczI4B2F+VBjCjvocyBCNOVS9cxAE+rUqliRHhznbunEY96dbl15kyC
+Zs8OrDgzJ1uTRVnSYzcO5M8AQeu6I0oQ5DukAOAJlglPJVR5gBMifNjUqTyoAM6NK1f1auTJ
+YDuuOxdTKM/NneGFHVkRLEKKE0GeFGzRdODWMhd7Xipb6FKDuAsGBAA7
+}
+
+image create photo centerDiffsImage -format gif -data {
+R0lGODlhFAAUAPcAAAAAAIAAAACAAICAAAAAgIAAgACAgMDAwMDcwKbK8P/w1P/isf/Ujv/G
+a/+4SP+qJf+qANySALl6AJZiAHNKAFAyAP/j1P/Hsf+rjv+Pa/9zSP9XJf9VANxJALk9AJYx
+AHMlAFAZAP/U1P+xsf+Ojv9ra/9ISP8lJf4AANwAALkAAJYAAHMAAFAAAP/U4/+xx/+Oq/9r
+j/9Ic/8lV/8AVdwASbkAPZYAMXMAJVAAGf/U8P+x4v+O1P9rxv9IuP8lqv8AqtwAkrkAepYA
+YnMASlAAMv/U//+x//+O//9r//9I//8l//4A/twA3LkAuZYAlnMAc1AAUPDU/+Kx/9SO/8Zr
+/7hI/6ol/6oA/5IA3HoAuWIAlkoAczIAUOPU/8ex/6uO/49r/3NI/1cl/1UA/0kA3D0AuTEA
+liUAcxkAUNTU/7Gx/46O/2tr/0hI/yUl/wAA/gAA3AAAuQAAlgAAcwAAUNTj/7HH/46r/2uP
+/0hz/yVX/wBV/wBJ3AA9uQAxlgAlcwAZUNTw/7Hi/47U/2vG/0i4/yWq/wCq/wCS3AB6uQBi
+lgBKcwAyUNT//7H//47//2v//0j//yX//wD+/gDc3AC5uQCWlgBzcwBQUNT/8LH/4o7/1Gv/
+xkj/uCX/qgD/qgDckgC5egCWYgBzSgBQMtT/47H/x47/q2v/j0j/cyX/VwD/VQDcSQC5PQCW
+MQBzJQBQGdT/1LH/sY7/jmv/a0j/SCX/JQD+AADcAAC5AACWAABzAABQAOP/1Mf/sav/jo//
+a3P/SFf/JVX/AEncAD25ADGWACVzABlQAPD/1OL/sdT/jsb/a7j/SKr/Jar/AJLcAHq5AGKW
+AEpzADJQAP//1P//sf//jv//a///SP//Jf7+ANzcALm5AJaWAHNzAFBQAPLy8ubm5tra2s7O
+zsLCwra2tqqqqp6enpKSkoaGhnp6em5ubmJiYlZWVkpKSj4+PjIyMiYmJhoaGg4ODv/78KCg
+pICAgP8AAAD/AP//AAAA//8A/wD//////yH5BAEAAAEALAAAAAAUABQAAAiUAAMIHBjAHYCD
+ANwRHHjOncOHBgkRSgjRYUOEGAEYMpQRoUMA/8SJFGdwY0JyKFFSBGCuZcuSHN25bLmyo0aO
+Nj+GJAkg0caNiU6q/DjToE9DQWW6rNkxUdCcBneONHhy5FCDM106zErzo82vB3XuTEm27Equ
+aJd6BQsVpFSRZcmeTYuWKduM7hpW3Lv33MK/gAUGBAA7
+}
+
+image create photo firstDiffImage -format gif -data {
+R0lGODlhFAAUAPcAAAAAAIAAAACAAICAAAAAgIAAgACAgMDAwMDcwKbK8P/w1P/isf/Ujv/G
+a/+4SP+qJf+qANySALl6AJZiAHNKAFAyAP/j1P/Hsf+rjv+Pa/9zSP9XJf9VANxJALk9AJYx
+AHMlAFAZAP/U1P+xsf+Ojv9ra/9ISP8lJf4AANwAALkAAJYAAHMAAFAAAP/U4/+xx/+Oq/9r
+j/9Ic/8lV/8AVdwASbkAPZYAMXMAJVAAGf/U8P+x4v+O1P9rxv9IuP8lqv8AqtwAkrkAepYA
+YnMASlAAMv/U//+x//+O//9r//9I//8l//4A/twA3LkAuZYAlnMAc1AAUPDU/+Kx/9SO/8Zr
+/7hI/6ol/6oA/5IA3HoAuWIAlkoAczIAUOPU/8ex/6uO/49r/3NI/1cl/1UA/0kA3D0AuTEA
+liUAcxkAUNTU/7Gx/46O/2tr/0hI/yUl/wAA/gAA3AAAuQAAlgAAcwAAUNTj/7HH/46r/2uP
+/0hz/yVX/wBV/wBJ3AA9uQAxlgAlcwAZUNTw/7Hi/47U/2vG/0i4/yWq/wCq/wCS3AB6uQBi
+lgBKcwAyUNT//7H//47//2v//0j//yX//wD+/gDc3AC5uQCWlgBzcwBQUNT/8LH/4o7/1Gv/
+xkj/uCX/qgD/qgDckgC5egCWYgBzSgBQMtT/47H/x47/q2v/j0j/cyX/VwD/VQDcSQC5PQCW
+MQBzJQBQGdT/1LH/sY7/jmv/a0j/SCX/JQD+AADcAAC5AACWAABzAABQAOP/1Mf/sav/jo//
+a3P/SFf/JVX/AEncAD25ADGWACVzABlQAPD/1OL/sdT/jsb/a7j/SKr/Jar/AJLcAHq5AGKW
+AEpzADJQAP//1P//sf//jv//a///SP//Jf7+ANzcALm5AJaWAHNzAFBQAPLy8ubm5tra2s7O
+zsLCwra2tqqqqp6enpKSkoaGhnp6em5ubmJiYlZWVkpKSj4+PjIyMiYmJhoaGg4ODv/78KCg
+pICAgP8AAAD/AP//AAAA//8A/wD//////yH5BAEAAAEALAAAAAAUABQAAAiUAAMIdFevoMGD
+Bd0JXBig3j9ChAxJnDixHkOBDilqlGjxIkGEIBVevHjOnbtzI1MKLAkAwEmVJN0BIKTIJUqY
+AVgS+neo5kuVOv9J7Gkzpc5BFIn+XHg06SGlN1fKbDlTYiKqRRmWNFnV0FWTS7XqtGoz6six
+XrMClRkxbdizbMm+jQngUKK7ao1OxTo3JliTZgUGBAA7
+}
+
+image create photo prevDiffImage -format gif -data {
+R0lGODdhFAAUAPf/AAAAAIAAAACAAICAAAAAgIAAgACAgMDAwMDcwKbK8P/w1P/isf/Ujv/G
+a/+4SP+qJf+qANySALl6AJZiAHNKAFAyAP/j1P/Hsf+rjv+Pa/9zSP9XJf9VANxJALk9AJYx
+AHMlAFAZAP/U1P+xsf+Ojv9ra/9ISP8lJf4AANwAALkAAJYAAHMAAFAAAP/U4/+xx/+Oq/9r
+j/9Ic/8lV/8AVdwASbkAPZYAMXMAJVAAGf/U8P+x4v+O1P9rxv9IuP8lqv8AqtwAkrkAepYA
+YnMASlAAMv/U//+x//+O//9r//9I//8l//4A/twA3LkAuZYAlnMAc1AAUPDU/+Kx/9SO/8Zr
+/7hI/6ol/6oA/5IA3HoAuWIAlkoAczIAUOPU/8ex/6uO/49r/3NI/1cl/1UA/0kA3D0AuTEA
+liUAcxkAUNTU/7Gx/46O/2tr/0hI/yUl/wAA/gAA3AAAuQAAlgAAcwAAUNTj/7HH/46r/2uP
+/0hz/yVX/wBV/wBJ3AA9uQAxlgAlcwAZUNTw/7Hi/47U/2vG/0i4/yWq/wCq/wCS3AB6uQBi
+lgBKcwAyUNT//7H//47//2v//0j//yX//wD+/gDc3AC5uQCWlgBzcwBQUNT/8LH/4o7/1Gv/
+xkj/uCX/qgD/qgDckgC5egCWYgBzSgBQMtT/47H/x47/q2v/j0j/cyX/VwD/VQDcSQC5PQCW
+MQBzJQBQGdT/1LH/sY7/jmv/a0j/SCX/JQD+AADcAAC5AACWAABzAABQAOP/1Mf/sav/jo//
+a3P/SFf/JVX/AEncAD25ADGWACVzABlQAPD/1OL/sdT/jsb/a7j/SKr/Jar/AJLcAHq5AGKW
+AEpzADJQAP//1P//sf//jv//a///SP//Jf7+ANzcALm5AJaWAHNzAFBQAPLy8ubm5tra2s7O
+zsLCwra2tqqqqp6enpKSkoaGhnp6em5ubmJiYlZWVkpKSj4+PjIyMiYmJhoaGg4ODv/78KCg
+pICAgP8AAAD/AP//AAAA//8A/wD//////yH5BAEAAAEALAAAAAAUABQAQAiGAAMIHCjwnDt3
+5wgqLHjQHQBChgwlAtAw4cIABh9GnIjwIsOH/yIeUkTR4sWMECWW9DgQJcmOJx0SGhRR5KGR
+Kxei3JjT406VMH06BECUaFCWGXsilfkP51GCKGnWdGryY9GUE4s+xfiT47mqCrsq1SmT51ao
+ZYGCDevwUKK3Y8k2PLg2IAA7
+}
+
+image create photo nextDiffImage -format gif -data {
+R0lGODdhFAAUAPf/AAAAAIAAAACAAICAAAAAgIAAgACAgMDAwMDcwKbK8P/w1P/isf/Ujv/G
+a/+4SP+qJf+qANySALl6AJZiAHNKAFAyAP/j1P/Hsf+rjv+Pa/9zSP9XJf9VANxJALk9AJYx
+AHMlAFAZAP/U1P+xsf+Ojv9ra/9ISP8lJf4AANwAALkAAJYAAHMAAFAAAP/U4/+xx/+Oq/9r
+j/9Ic/8lV/8AVdwASbkAPZYAMXMAJVAAGf/U8P+x4v+O1P9rxv9IuP8lqv8AqtwAkrkAepYA
+YnMASlAAMv/U//+x//+O//9r//9I//8l//4A/twA3LkAuZYAlnMAc1AAUPDU/+Kx/9SO/8Zr
+/7hI/6ol/6oA/5IA3HoAuWIAlkoAczIAUOPU/8ex/6uO/49r/3NI/1cl/1UA/0kA3D0AuTEA
+liUAcxkAUNTU/7Gx/46O/2tr/0hI/yUl/wAA/gAA3AAAuQAAlgAAcwAAUNTj/7HH/46r/2uP
+/0hz/yVX/wBV/wBJ3AA9uQAxlgAlcwAZUNTw/7Hi/47U/2vG/0i4/yWq/wCq/wCS3AB6uQBi
+lgBKcwAyUNT//7H//47//2v//0j//yX//wD+/gDc3AC5uQCWlgBzcwBQUNT/8LH/4o7/1Gv/
+xkj/uCX/qgD/qgDckgC5egCWYgBzSgBQMtT/47H/x47/q2v/j0j/cyX/VwD/VQDcSQC5PQCW
+MQBzJQBQGdT/1LH/sY7/jmv/a0j/SCX/JQD+AADcAAC5AACWAABzAABQAOP/1Mf/sav/jo//
+a3P/SFf/JVX/AEncAD25ADGWACVzABlQAPD/1OL/sdT/jsb/a7j/SKr/Jar/AJLcAHq5AGKW
+AEpzADJQAP//1P//sf//jv//a///SP//Jf7+ANzcALm5AJaWAHNzAFBQAPLy8ubm5tra2s7O
+zsLCwra2tqqqqp6enpKSkoaGhnp6em5ubmJiYlZWVkpKSj4+PjIyMiYmJhoaGg4ODv/78KCg
+pICAgP8AAAD/AP//AAAA//8A/wD//////yH5BAEAAAEALAAAAAAUABQAQAiGAAMIHHjOncGD
+5wYqVFgQACFDhhIBcJdwIUN3DgsdUjSxokWBDR9G7PixIYCTIiWeJGmx4T9ChA6x/BggJESJ
+FGnWtDmSoseLGSFC3DizJMaiNE2uRLrQ5U2mQFNCJYhRak6dPHH+vGjQ4VOETasWEmrokFmO
+V6OOLYt2a1iHbXWGTbswIAA7
+}
+
+image create photo lastDiffImage -format gif -data {
+R0lGODlhFAAUAPcAAAAAAIAAAACAAICAAAAAgIAAgACAgMDAwMDcwKbK8P/w1P/isf/Ujv/G
+a/+4SP+qJf+qANySALl6AJZiAHNKAFAyAP/j1P/Hsf+rjv+Pa/9zSP9XJf9VANxJALk9AJYx
+AHMlAFAZAP/U1P+xsf+Ojv9ra/9ISP8lJf4AANwAALkAAJYAAHMAAFAAAP/U4/+xx/+Oq/9r
+j/9Ic/8lV/8AVdwASbkAPZYAMXMAJVAAGf/U8P+x4v+O1P9rxv9IuP8lqv8AqtwAkrkAepYA
+YnMASlAAMv/U//+x//+O//9r//9I//8l//4A/twA3LkAuZYAlnMAc1AAUPDU/+Kx/9SO/8Zr
+/7hI/6ol/6oA/5IA3HoAuWIAlkoAczIAUOPU/8ex/6uO/49r/3NI/1cl/1UA/0kA3D0AuTEA
+liUAcxkAUNTU/7Gx/46O/2tr/0hI/yUl/wAA/gAA3AAAuQAAlgAAcwAAUNTj/7HH/46r/2uP
+/0hz/yVX/wBV/wBJ3AA9uQAxlgAlcwAZUNTw/7Hi/47U/2vG/0i4/yWq/wCq/wCS3AB6uQBi
+lgBKcwAyUNT//7H//47//2v//0j//yX//wD+/gDc3AC5uQCWlgBzcwBQUNT/8LH/4o7/1Gv/
+xkj/uCX/qgD/qgDckgC5egCWYgBzSgBQMtT/47H/x47/q2v/j0j/cyX/VwD/VQDcSQC5PQCW
+MQBzJQBQGdT/1LH/sY7/jmv/a0j/SCX/JQD+AADcAAC5AACWAABzAABQAOP/1Mf/sav/jo//
+a3P/SFf/JVX/AEncAD25ADGWACVzABlQAPD/1OL/sdT/jsb/a7j/SKr/Jar/AJLcAHq5AGKW
+AEpzADJQAP//1P//sf//jv//a///SP//Jf7+ANzcALm5AJaWAHNzAFBQAPLy8ubm5tra2s7O
+zsLCwra2tqqqqp6enpKSkoaGhnp6em5ubmJiYlZWVkpKSj4+PjIyMiYmJhoaGg4ODv/78KCg
+pICAgP8AAAD/AP//AAAA//8A/wD//////yH5BAEAAAEALAAAAAAUABQAAAiTAAMIHHjOncGD
+5wYqVFgQgMOH7hIuZOgOwD9ChA4BiDiRokVDhhJtlNgxQENCIEVyLGmyIsqQI1meO5lyJEmK
+BgG8VGnwZsuHOmtCvHmyEEiQh5IqiumRkNGjh5auXFgUqVSfTQtFZSrT5VWWHrmCFVhwakl3
+9dKqXZvW3cR6F18enVvv7b+5eEHWXYiWrV+3AgMCADs=
+}
+
+image create photo rediffImage -format gif -data {
+R0lGODdhFAAUAPf/AAAAAIAAAACAAICAAAAAgIAAgACAgMDAwMDcwKbK8P/w1P/isf/Ujv/G
+a/+4SP+qJf+qANySALl6AJZiAHNKAFAyAP/j1P/Hsf+rjv+Pa/9zSP9XJf9VANxJALk9AJYx
+AHMlAFAZAP/U1P+xsf+Ojv9ra/9ISP8lJf4AANwAALkAAJYAAHMAAFAAAP/U4/+xx/+Oq/9r
+j/9Ic/8lV/8AVdwASbkAPZYAMXMAJVAAGf/U8P+x4v+O1P9rxv9IuP8lqv8AqtwAkrkAepYA
+YnMASlAAMv/U//+x//+O//9r//9I//8l//4A/twA3LkAuZYAlnMAc1AAUPDU/+Kx/9SO/8Zr
+/7hI/6ol/6oA/5IA3HoAuWIAlkoAczIAUOPU/8ex/6uO/49r/3NI/1cl/1UA/0kA3D0AuTEA
+liUAcxkAUNTU/7Gx/46O/2tr/0hI/yUl/wAA/gAA3AAAuQAAlgAAcwAAUNTj/7HH/46r/2uP
+/0hz/yVX/wBV/wBJ3AA9uQAxlgAlcwAZUNTw/7Hi/47U/2vG/0i4/yWq/wCq/wCS3AB6uQBi
+lgBKcwAyUNT//7H//47//2v//0j//yX//wD+/gDc3AC5uQCWlgBzcwBQUNT/8LH/4o7/1Gv/
+xkj/uCX/qgD/qgDckgC5egCWYgBzSgBQMtT/47H/x47/q2v/j0j/cyX/VwD/VQDcSQCrPQCW
+MQBzJQBQGdT/1LH/sY7/jmv/a0j/SCX/JQD+AADcAAC5AACWAABzAABQAOP/1Mf/sav/jo//
+a3P/SFf/JVX/AEncAD25ADGWACVzABlQAPD/1OL/sdT/jsb/a7j/SKr/Jar/AJLcAHq5AGKW
+AEpzADJQAP//1P//sf//jv//a///SP//Jf7+ANzcALm5AJaWAHNzAFBQAPLy8ubm5tra2s7O
+zsLCwra2tqqqqp6enpKSkoaGhnp6em5ubmJiYlZWVkpKSj4+PjIyMiYmJhoaGg4ODv/78KCg
+pICAgP8AAAD/AP//AAAA//8A/wD//////yH5BAEAAAEALAAAAAAUABQAQAicAAMIHEiwoMF0
+7AD0euVKl8OHrhjqAgDvnDsAGDOmG2jR3TmDIAVaxFiRoMJXKF/1ypgR5UqPIWOCTIfQnc2b
+ABpS/Bgg3cmUQIOqBHBxIUpYADYKLEqUp8ynUKMatFgy5LmrWEdOrDoQIcuvrnSWPJfQqFCg
+YhPCAtqrrduUL8/9fIWUJs2LQ2EGmFt34MWmBNPdvKlUquEAAQEAOw==
+}
+
+image create photo markSetImage -format gif -data {
+R0lGODlhFAAUAPcAAAAAAIAAAACAAICAAAAAgIAAgACAgMDAwMDcwKbK8P/w1Pjisd/UjtHJ
+a8O4SL2qJcWqAK+SAJN6AGJiAEpKADIyAP/j1P/Hsf+rjv+Pa/9zSP9XJf9VANxJALk9AJYx
+AHMlAFAZAP/U1P+xsf+Ojv9ra/9ISP8lJf4AANwAALkAAJYAAHMAAFAAAP/U4/+xx/+Oq/9r
+j/9Ic/8lV/8AVdwASbkAPZYAMXMAJVAAGf/U8P+x4v+O1P9rxv9IuP8lqv8AqtwAkrkAepYA
+YnMASlAAMv/U//+x//+O//9r//9I//8l//4A/twA3LkAuZYAlnMAc1AAUPDU/+Kx/9SO/8Zr
+/7hI/6ol/6oA/5IA3HoAuWIAlkoAczIAUOPU/8ex/6uO/49r/3NI/1cl/1UA/0kA3D0AuTEA
+liUAcxkAUNTU/7Gx/46O/2tr/0hI/yUl/wAA/gAA3AAAuQAAlgAAcwAAUNTj/7HH/46r/2uP
+/0hz/yVX/wBV/wBJ3AA9uQAxlgAlcwAZUNTw/7Hi/47U/2vG/0i4/yWq/wCq/wCS3AB6uQBi
+lgBKcwAyUNT//7H//47//2v//0j//yX//wD+/gDc3AC5uQCWlgBzcwBQUNT/8LH/4o7/1Gv/
+xkj/uCX/qgD/qgDckgC5egCWYgBzSgBQMtT/47H/x47/q2v/j0j/cyX/VwD/VQDcSQC5PQCW
+MQBzJQBQGdT/1LH/sY7/jmv/a0j/SCX/JQD+AADcAAC5AACWAABzAABQAOP/1Mf/sav/jo//
+a3P/SFf/JVX/AEncAD25ADGWACVzABlQAPD/1OL/sdT/jsb/a7j/SKr/Jar/AJLcAHq5AGKW
+AEpzADJQAP//1P//sf//jv//a///SP//Jf7+ANzcALm5AJaWAHNzAFBQAPLy8ubm5tra2s7O
+zsLCwra2tqqqqp6enpKSkoaGhnp6em5ubmJiYlZWVkpKSj4+PjIyMiYmJhoaGg4ODv/78KCg
+pICAgP8AAAD/AP//AAAA//8A/wD//////yH5BAEAAAEALAAAAAAUABQAAAiZAAMIHEhQoLqD
+CAsqFAigIQB3Dd0tNKjOXSxXrmABWBABgLqCByECuAir5EYJHimKvOgqFqxXrzZ2lBhgJUaY
+LV/GOpkSIqybOF3ClPlQIEShMF/lfLVzAcqPRhsKXRqTY1GCFaUy1ckTKkiRGhtapTkxa82u
+ExUSJZs2qtOUbQ2ujTsQ4luvbdXNpRtA712+UeEC7ou3YEAAADt=
+}
+
+image create photo markClearImage -format gif -data {
+R0lGODlhFAAUAPcAAAAAAIAAAACAAICAAAAAgIAAgACAgMDAwMDcwKbK8P/w1Pjisd/UjtHJ
+a8O4SL2qJcWqAK+SAJN6AGJiAEpKADIyAP/j1P/Hsf+rjv+Pa/9zSP9XJf9VANxJALk9AJYx
+AHMlAFAZAP/U1P+xsf+Ojv9ra/9ISP8lJf4AANwAALkAAJYAAHMAAFAAAP/U4/+xx/+Oq/9r
+j/9Ic/8lV/8AVdwASbkAPZYAMXMAJVAAGf/U8P+x4v+O1P9rxv9IuP8lqv8AqtwAkrkAepYA
+YnMASlAAMv/U//+x//+O//9r//9I//8l//4A/twA3LkAuZYAlnMAc1AAUPDU/+Kx/9SO/8Zr
+/7hI/6ol/6oA/5IA3HoAuWIAlkoAczIAUOPU/8ex/6uO/49r/3NI/1cl/1UA/0kA3D0AuTEA
+liUAcxkAUNTU/7Gx/46O/2tr/0hI/yUl/wAA/gAA3AAAuQAAlgAAcwAAUNTj/7HH/46r/2uP
+/0hz/yVX/wBV/wBJ3AA9uQAxlgAlcwAZUNTw/7Hi/47U/2vG/0i4/yWq/wCq/wCS3AB6uQBi
+lgBKcwAyUNT//7H//47//2v//0j//yX//wD+/gDc3AC5uQCWlgBzcwBQUNT/8LH/4o7/1Gv/
+xkj/uCX/qgD/qgDckgC5egCWYgBzSgBQMtT/47H/x47/q2v/j0j/cyX/VwD/VQDcSQC5PQCW
+MQBzJQBQGdT/1LH/sY7/jmv/a0j/SCX/JQD+AADcAAC5AACWAABzAABQAOP/1Mf/sav/jo//
+a3P/SFf/JVX/AEncAD25ADGWACVzABlQAPD/1OL/sdT/jsb/a7j/SKr/Jar/AJLcAHq5AGKW
+AEpzADJQAP//1P//sf//jv//a///SP//Jf7+ANzcALm5AJaWAHNzAFBQAPLy8ubm5tra2s7O
+zsLCwra2tqqqqp6enpKSkoaGhnp6em5ubmJiYlZWVkpKSj4+PjIyMiYmJhoaGg4ODv/78KCg
+pICAgP8AAAD/AP//AAAA//8A/wD//////yH5BAEAAAEALAAAAAAUABQAAAiwAAMIHEhQoLqD
+CAsCWKhwIbyFANwNXBiD4UF3sVw9rLhQXQCKNTguzLgxZMePMWqo5OgqVkmVNwAIXHhDpUl3
+7gCkhMkwJ02bHHfWiCkzQM5YP1cKJepRoM+kNoculEhQXc6cNW3GzNm0oFWdUSviLDgRbFST
+RRsuzYpWrVaoHMsujYgVKMOPUYkCWPCQbY2iP/UuiACgr9S0NDvulQBAXd+7ZYv6bPowLdmB
+By8LDAgAOw==
+}
+
+image create photo mergeChoice1Image -format gif -data {
+R0lGODdhFAAUAPf/AAAAAIAAAACAAICAAAAAgIAAgACAgMDAwMDcwKbK8P/w1P/isf/Ujv/G
+a/+4SP+qJf+qANySALl6AJZiAHNKAFAyAP/j1P/Hsf+rjv+Pa/9zSP9XJf9VANxJALk9AJYx
+AHMlAFAZAP/U1P+xsf+Ojv9ra/9ISP8lJf4AANwAALkAAJYAAHMAAFAAAP/U4/+xx/+Oq/9r
+j/9Ic/8lV/8AVdwASbkAPZYAMXMAJVAAGf/U8P+x4v+O1P9rxv9IuP8lqv8AqtwAkrkAepYA
+YnMASlAAMv/U//+x//+O//9r//9I//8l//4A/twA3LkAuZYAlnMAc1AAUPDU/+Kx/9SO/8Zr
+/7hI/6ol/6oA/5IA3HoAuWIAlkoAczIAUOPU/8ex/6uO/49r/3NI/1cl/1UA/0kA3D0AuTEA
+liUAcxkAUNTU/7Gx/46O/2tr/0hI/yUl/wAA/gAA3AAAuQAAlgAAcwAAUNTj/7HH/46r/2uP
+/0hz/yVX/wBV/wBJ3AA9uQAxlgAlcwAZUNTw/7Hi/47U/2vG/0i4/yWq/wCq/wCS3AB6uQBi
+lgBKcwAyUNT//7H//47//2v//0j//yX//wD+/gDc3AC5uQCWlgBzcwBQUNT/8LH/4o7/1Gv/
+xkj/uCX/qgD/qgDckgC5egCWYgBzSgBQMtT/47H/x47/q2v/j0j/cyX/VwD/VQDcSQC5PQCW
+MQBzJQBQGdT/1LH/sY7/jmv/a0j/SCX/JQD+AADcAAC5AACWAABzAABQAOP/1Mf/sav/jo//
+a3P/SFf/JVX/AEncAD25ADGWACVzABlQAPD/1OL/sdT/jsb/a7j/SKr/Jar/AJLcAHq5AGKW
+AEpzADJQAP//1P//sf//jv//a///SP//Jf7+ANzcALm5AJaWAHNzAFBQAPLy8ubm5tra2s7O
+zsLCwra2tqqqqp6enpKSkoaGhnp6em5ubmJiYlZWVkpKSj4+PjIyMiYmJhoaGg4ODv/78KCg
+pICAgP8AAAD/AP//AAAA//8A/wD//////yH5BAEAAAEALAAAAAAUABQAQAiIAAMIHEiwYMFz
+7gAQ+meoIaGHECEeAuDuoDt35wxqFIgQAMWMGzkmVHRooseTKD1WPAgy5MCOhAZRvEizJsaR
+hxrq3LkzEcWXIz+eG0qUqMujSJMixJg0AEyhRYuKVDjIUMqrMxUy5MnVkM+bAEgaOpSorNmz
+X6eSnGmzZkunCT825fh2btKAADt=
+}
+
+image create photo mergeChoice2Image -format gif -data {
+R0lGODdhFAAUAPf/AAAAAIAAAACAAICAAAAAgIAAgACAgMDAwMDcwKbK8P/w1P/isf/Ujv/G
+a/+4SP+qJf+qANySALl6AJZiAHNKAFAyAP/j1P/Hsf+rjv+Pa/9zSP9XJf9VANxJALk9AJYx
+AHMlAFAZAP/U1P+xsf+Ojv9ra/9ISP8lJf4AANwAALkAAJYAAHMAAFAAAP/U4/+xx/+Oq/9r
+j/9Ic/8lV/8AVdwASbkAPZYAMXMAJVAAGf/U8P+x4v+O1P9rxv9IuP8lqv8AqtwAkrkAepYA
+YnMASlAAMv/U//+x//+O//9r//9I//8l//4A/twA3LkAuZYAlnMAc1AAUPDU/+Kx/9SO/8Zr
+/7hI/6ol/6oA/5IA3HoAuWIAlkoAczIAUOPU/8ex/6uO/49r/3NI/1cl/1UA/0kA3D0AuTEA
+liUAcxkAUNTU/7Gx/46O/2tr/0hI/yUl/wAA/gAA3AAAuQAAlgAAcwAAUNTj/7HH/46r/2uP
+/0hz/yVX/wBV/wBJ3AA9uQAxlgAlcwAZUNTw/7Hi/47U/2vG/0i4/yWq/wCq/wCS3AB6uQBi
+lgBKcwAyUNT//7H//47//2v//0j//yX//wD+/gDc3AC5uQCWlgBzcwBQUNT/8LH/4o7/1Gv/
+xkj/uCX/qgD/qgDckgC5egCWYgBzSgBQMtT/47H/x47/q2v/j0j/cyX/VwD/VQDcSQC5PQCW
+MQBzJQBQGdT/1LH/sY7/jmv/a0j/SCX/JQD+AADcAAC5AACWAABzAABQAOP/1Mf/sav/jo//
+a3P/SFf/JVX/AEncAD25ADGWACVzABlQAPD/1OL/sdT/jsb/a7j/SKr/Jar/AJLcAHq5AGKW
+AEpzADJQAP//1P//sf//jv//a///SP//Jf7+ANzcALm5AJaWAHNzAFBQAPLy8ubm5tra2s7O
+zsLCwra2tqqqqp6enpKSkoaGhnp6em5ubmJiYlZWVkpKSj4+PjIyMiYmJhoaGg4ODv/78KCg
+pICAgP8AAAD/AP//AAAA//8A/wD//////yH5BAEAAAEALAAAAAAUABQAQAiNAAMIHEiwYEF3
+AP79GzSIkMOHhAwZKkQIgLtzBguec3cxo8eNACxiHIgwpMmTIQ8dUiTSo8aRBDdynEkTIcWW
+ARBGlMizJ8+VFgOcG0q0KEKWHV0qXcp0qUyYA4tKBVkxaU6UWAFMrIoR4SCfYCXe5AjgUKKz
+aNMeMgT0osyaNMsihfqxpNWmQ5s2DQgAOw==
+}
+
+image create photo nullImage 
 
 # run the main proc
 main
