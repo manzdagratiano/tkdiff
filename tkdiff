@@ -4078,7 +4078,7 @@ proc apply {{remark 0}} {
 
     # set opts to the values from tmpopts
     foreach key {autocenter autoselect chgtag colorcbs currtag deltag diffcmd \
-        difftag editor fancyButtons geometry ignoreblanks ignoreblanksopt \
+        difftag inlinetag editor fancyButtons geometry ignoreblanks ignoreblanksopt \
         instag overlaptag showcbs showlineview showln showmap syncscroll \
         tabstops tagcbs tagln tagtext textopt tmpdir toolbarIcons} {
         set opts($key) $tmpopts($key)
@@ -4135,7 +4135,7 @@ proc save {} {
 
     # now, put all of the preferences in the file
     foreach key {autocenter autoselect bytetag chgtag colorcbs currtag deltag \
-        diffcmd difftag editor fancyButtons geometry ignoreblanks \
+        diffcmd difftag inlinetag editor fancyButtons geometry ignoreblanks \
         ignoreblanksopt instag overlaptag showcbs showlineview showln showmap \
         syncscroll tmpdir tabstops tagcbs tagln tagtext textopt toolbarIcons} {
         regsub "\n" $pref($key) "\n# " comment
