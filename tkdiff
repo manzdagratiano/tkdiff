@@ -138,7 +138,6 @@ set sysfont [font actual system]
 . configure -menu .native
 menu .native
 set menufont [lindex [.native configure -font] 3]
-set w(selcolor) [lindex [.native configure -selectcolor] 3]
 destroy .native
 
 # Find out what the tk default is
@@ -151,8 +150,12 @@ set textfont [lindex [.testtext configure -font] 3]
 destroy .testtext
 
 entry .testent
+set w(selcolor) [lindex [.testent configure -selectbackground] 4]
 set entryfont [lindex [.testent configure -font] 3]
 destroy .testent
+# the above results in a nearly undistinguishable darker gray for the
+# selected color (rh8 with tk 8.3.3-74) "#c3c3c3"
+set w(selcolor) "#b03060"
 
 # Make sure they're specified in points not pixels.  AquaTk doesn't.
 if {! [regexp -- {-} $labelfont]} {
@@ -228,6 +231,8 @@ array set opts {
     colorcbs	0
     customCode	{}
     diffcmd	"diff"
+    ignoreblanksopt "-b"
+    ignoreblanks 0
     editor	""
     geometry	"80x30"
     showcbs	1
@@ -299,7 +304,7 @@ if {[string first "color" [winfo visual .]] >= 0} {
 	instag	"-background $colordel -font $bold"
 	chgtag	"-background LightSteelBlue"
 	overlaptag	"-background yellow"
-	bytetag	"-underline 1 -background black -foreground white"
+	bytetag	"-background blue -foreground white"
 	inlinetag	"-background $colorchg -font $bold"
 	-	"-background $colorins -foreground $colorins"
 	+	"-background $colordel -foreground $colordel"
@@ -581,6 +586,22 @@ proc do-show-changebars {{show {}}} {
     } else {
 	grid forget $w(LeftCB)
 	grid forget $w(RightCB)
+    }
+}
+
+
+###############################################################################
+# Toggle ignore white spaces
+###############################################################################
+proc do-show-ignoreblanks {{showIgn {}}} {
+    global opts
+    global finfo
+
+    if {$showIgn != {}} {
+        set opts(ignoreblanks) $showIgn
+    }
+    if {$finfo(pth,1) != {} && $finfo(pth,2) != {}} {
+        recompute-diff
     }
 }
 
@@ -1016,7 +1037,7 @@ proc init-files {} {
 		}
 	    default {
 		    incr pths
-		    set finfo(pth,$pths) "$arg"
+		    set finfo(pth,$pths) $arg
 		}
 	}
 	incr argindex
@@ -2344,6 +2365,7 @@ proc build-menubar {} {
     $fileMenu add command\
         -label "Recompute Diffs"\
         -underline 0\
+        -accelerator r\
         -command recompute-diff
     $fileMenu add command\
         -label "Write Report..."\
@@ -2417,6 +2439,13 @@ proc build-menubar {} {
     # View menu...  If you change, add or remove labels, be sure and
     # update the tooltips.
     menu $viewMenu
+    $viewMenu add checkbutton\
+        -label "Ignore White Spaces"\
+        -underline 8\
+        -selectcolor $w(selcolor)\
+        -variable opts(ignoreblanks)\
+        -command do-show-ignoreblanks
+
     $viewMenu add checkbutton\
         -label "Show Line Numbers"\
         -underline 12\
@@ -2518,6 +2547,7 @@ proc build-menubar {} {
     set "g(tooltip,Last Diff)" "Go to the last difference."
     set "g(tooltip,Previous Diff)" "Go to the diff record just prior to the current diff record."
     set "g(tooltip,Next Diff)" "Go to the diff record just after the current diff record."
+    set "g(tooltip,Ignore White Spaces)" "If set, changes in whitespaces are ignored"
 
     # Merge menu. If you change, add or remove labels, be sure and
     # update the tooltips.
@@ -3292,6 +3322,10 @@ proc common-navigation {args} {
 	    do-exit
 	    break
 	"
+	bind $widget <r> "
+	    recompute-diff
+	    break
+	"
 	bind $widget <Return> "
 	    moveNearest $widget mark insert
 	    break
@@ -3499,7 +3533,7 @@ proc customize {} {
     # General
     set count 0
     set frame $w(preferences).fGeneral
-    foreach key {diffcmd tmpdir editor geometry} {
+    foreach key {diffcmd ignoreblanksopt tmpdir editor geometry} {
 	label $frame.l$count\
 	    -text "$pref($key): "\
 	    -anchor w
@@ -3542,7 +3576,6 @@ proc customize {} {
 	    -indicatoron true\
 	    -text "$pref($key)"\
 	    -justify left\
-	    -width [string length $pref($key)] \
 	    -onvalue 1\
 	    -offvalue 0\
 	    -variable tmpopts($key)
@@ -3690,7 +3723,8 @@ proc customize {} {
     #
     # an x means an empty column; a - means an empty row
     set col 0
-    foreach key [list showln tagln showcbs tagcbs showmap colorcbs showlineview tagtext showinline1 x showinline2 x] {
+    foreach key [list showln tagln showcbs tagcbs showmap colorcbs \
+                 showlineview tagtext ignoreblanks showinline1 x showinline2 x] {
 
 	if {$key == "x"} {
 	    set col [expr {$col ? 0 : 1}]
@@ -3834,6 +3868,8 @@ proc customize-initLabels {} {
     global pref
 
     set pref(diffcmd) {diff command}
+    set pref(ignoreblanksopt) {Ignore blanks option}
+    set pref(ignoreblanks) {Ignore blanks when diffing}
     set pref(textopt) {Text widget options}
     set pref(bytetag) {Tag options for characters in line view}
     set pref(difftag) {Tag options for diff regions}
@@ -3963,17 +3999,18 @@ proc apply {{remark 0}} {
     }
 
     # set opts to the values from tmpopts
-    foreach key {diffcmd textopt difftag currtag inlinetag deltag instag chgtag overlaptag\
-            tmpdir editor showmap showln showcbs showlineview autocenter syncscroll\
-            tagln tagcbs tagtext autoselect toolbarIcons geometry\
-            fancyButtons colorcbs tabstops} {
+    foreach key {autocenter autoselect chgtag colorcbs currtag \
+                 deltag diffcmd difftag editor fancyButtons geometry \
+                 ignoreblanks ignoreblanksopt instag overlaptag \
+                 showcbs showlineview showln showmap syncscroll \
+                 tabstops tagcbs tagln tagtext textopt tmpdir toolbarIcons} {
 	set opts($key) $tmpopts($key)
     }
     if {$opts(fancyButtons)} {
         set opts(relief) flat
-     } else {
+    } else {
         set opts(relief) raised
-     }
+    }
 
     # determine if we need to redo the inline diffs to avoid needless rediff
     if {$opts(showinline1) != $tmpopts(showinline1) || \
@@ -3996,6 +4033,7 @@ proc apply {{remark 0}} {
     do-show-changebars
     do-show-map
     do-show-lineview
+    do-show-ignoreblanks
 }
 
 ###############################################################################
@@ -4024,10 +4062,11 @@ proc save {} {
     puts $fid "set prefsFileVersion {$g(version)}\n"
 
     # now, put all of the preferences in the file
-    foreach key {diffcmd textopt difftag currtag inlinetag deltag instag bytetag overlaptag\
-            tabstops chgtag showmap showln showcbs showlineview showinline1 showinline2 autocenter syncscroll\
-            fancyButtons geometry editor colorcbs autoselect tagln tagcbs tagtext\
-            toolbarIcons} {
+    foreach key {autocenter autoselect bytetag chgtag colorcbs currtag \
+                 deltag diffcmd difftag editor fancyButtons geometry \
+                 ignoreblanks ignoreblanksopt instag overlaptag \
+                 showcbs showlineview showln showmap syncscroll \
+                 tabstops tagcbs tagln tagtext textopt tmpdir toolbarIcons} {
 	regsub "\n" $pref($key) "\n# " comment
 	puts $fid "# $comment"
 	puts $fid "define $key {$tmpopts($key)}\n"
@@ -5054,7 +5093,9 @@ proc add-lines {pos} {
     $w(LeftCB) configure\
         -state normal
     for {set i $s1} {$i <= $e1} {incr i} {
+	$w(LeftCB) delete $i.0
 	$w(LeftCB) insert $i.0 $lefttext
+	$w(RightCB) delete $i.0
 	$w(RightCB) insert $i.0 $righttext
     }
 
@@ -5899,7 +5940,11 @@ proc rediff {} {
     }
 
     # Diff the two files and store the summary lines into 'g(diff)'.
-    set diffcmd "$opts(diffcmd) {$finfo(pth,1)} {$finfo(pth,2)}"
+    if {$opts(ignoreblanks) == 1} {
+        set diffcmd "$opts(diffcmd) $opts(ignoreblanksopt) {$finfo(pth,1)} {$finfo(pth,2)}"
+    } else {
+        set diffcmd "$opts(diffcmd) {$finfo(pth,1)} {$finfo(pth,2)}"
+    }
     show-info "Executing \"$diffcmd\""
 
     set result [run-command "exec $diffcmd"]
@@ -5936,7 +5981,11 @@ proc rediff {} {
     if {$g(ancfileset)} {
 
 	# 3-way merge - compare 1st file (left: diff3l) with ancestor
-	set diffcmd "$opts(diffcmd) {$finfo(pth,1)} {$g(ancfile)}"
+	if {$opts(ignoreblanks) == 1} {
+		set diffcmd "$opts(diffcmd) $opts(ignoreblanksopt) {$finfo(pth,1)} {$g(ancfile)}"
+	} else {
+		set diffcmd "$opts(diffcmd) {$finfo(pth,1)} {$g(ancfile)}"
+	}
 	show-info "Executing \"$diffcmd\""
 	set result [run-command "exec $diffcmd"]
 	set stdout [lindex $result 0]
@@ -5964,7 +6013,11 @@ proc rediff {} {
 	}
 
 	# 3-way merge - compare 2nd file (right: diff3r) with ancestor
-	set diffcmd "$opts(diffcmd) {$finfo(pth,2)} {$g(ancfile)}"
+	if {$opts(ignoreblanks) == 1} {
+		set diffcmd "$opts(diffcmd) $opts(ignoreblanksopt) {$finfo(pth,2)} {$g(ancfile)}"
+	} else {
+		set diffcmd "$opts(diffcmd) {$finfo(pth,2)} {$g(ancfile)}"
+	}
 	show-info "Executing \"$diffcmd\""
 	set result [run-command "exec $diffcmd"]
 	set stdout [lindex $result 0]
@@ -6461,10 +6514,8 @@ proc newDiff {} {
 		    -width 5\
             -default active\
             -command {
-                set argv "\"$g(newDiff,simple,original)\""
-                if {$g(newDiff,simple,revision) != ""} {
-		    append argv " \"$g(newDiff,simple,revision)\""
-	        }
+                set argv $g(newDiff,simple,original)
+                if {$g(newDiff,simple,revision) != ""} {append argv " $g(newDiff,simple,revision)"}
                 set waitvar 1
             }
 		button $commands.cancel\
