@@ -64,8 +64,7 @@ wm withdraw .
 
 # set a couple o' globals that we might need sooner than later
 set g(name) "TkDiff"
-set g(version) "4.0.1"
-set g(nativeMenus) 1
+set g(version) "4.0.2"
 set g(started) 0
 
 # ok, I'll admit -- this is a personal preference. I suppose I ought to
@@ -74,9 +73,9 @@ option add "*TearOff" false 100
 option add "*BorderWidth" 1 100
 # tkTabToWindow is a private interface that should not have been used
 # but we need it so we'll expose it as of tk8.4
-if { $tk_version >= 8.4 } {
-   ::tk::unsupported::ExposePrivateCommand tk*
-}
+#if { $tk_version >= 8.4 } {
+   #::tk::unsupported::ExposePrivateCommand tk*
+#}
 
 # determine the windowing platform, since there are different ways to
 # do this for different versions of tcl
@@ -1623,11 +1622,6 @@ proc build-client {} {
     set cwidth [expr {$cwidth -($ht*2)}]
     set color [$w(LeftVSB) cget -troughcolor]
 
-    # another MacOSX-ism
-    if {$g(windowingSystem) == "aqua"} {
-        set color \#f0f0f0
-    }
-
     set map [frame $w(client).map \
             -bd 1 \
             -relief sunken \
@@ -2685,16 +2679,11 @@ proc showTooltip {which w} {
 
 proc build-toolbar {} {
     global w g
+    global opts
 
     frame $w(toolbar) \
             -bd 0
 
-    # We can't do the Aqua "pinstripes", but at least this helps keep
-    # the UI from being completel washed out
-    if {$g(windowingSystem) == "aqua"} {
-        $w(toolbar) configure \
-                -bg \#f0f0f0
-    }
     set toolbar $w(toolbar)
 
     # these are used in other places..
@@ -3238,14 +3227,6 @@ proc toolbutton {w args} {
     $w configure \
             -relief $opts(relief)
 
-    # For MacOS we need to add a little color so everything isn't
-    # quite so washed out
-    if {$g(windowingSystem) == "aqua"} {
-        $w configure \
-                -background \#f0f0f0 \
-                -highlightbackground \#f0f0f0
-    }
-
     return $w
 }
 
@@ -3672,6 +3653,7 @@ proc customize {} {
         set tmpopts($key) $opts($key)
 
         if {$key == "fancyButtons" && $g(windowingSystem) == "aqua"} {
+            # Skipit - nothing to do
             incr count
             continue
         }
@@ -3682,7 +3664,6 @@ proc customize {} {
                 -columnspan 2 \
                 -sticky w \
                 -padx 5
-
 
         incr count
     }
@@ -4149,10 +4130,7 @@ proc save {} {
     puts $fid "set prefsFileVersion {$g(version)}\n"
 
     # now, put all of the preferences in the file
-    foreach key {autocenter autoselect bytetag chgtag colorcbs currtag deltag \
-        diffcmd difftag inlinetag editor fancyButtons geometry ignoreblanks \
-        ignoreblanksopt instag overlaptag showcbs showlineview showln showmap \
-        syncscroll tmpdir tabstops tagcbs tagln tagtext textopt toolbarIcons} {
+    foreach key [array names pref] {
         regsub "\n" $pref($key) "\n# " comment
         puts $fid "# $comment"
         puts $fid "define $key {$tmpopts($key)}\n"
@@ -6314,7 +6292,12 @@ proc main {} {
 
     wipe
 
-    get_cde_params
+    if {$g(windowingSystem) == "X11"} {
+        get_cde_params
+    }
+    if {$g(windowingSystem) == "aqua"} {
+        get_aqua_params
+    }
 
     create-display
 
@@ -6639,7 +6622,6 @@ proc newDiff {} {
         pack $simple \
                 -side top \
                 -fill both \
-                -fill x \
                 -ipady 20 \
                 -ipadx 20 \
                 -padx 5 \
@@ -7941,8 +7923,8 @@ proc ::combobox::SetClassBindings {} {
     # this helps (but doesn't fully solve) focus issues. The general
     # idea is, whenever the frame gets focus it gets passed on to
     # the entry widget
-    bind Combobox <FocusIn> {::combobox::tkTabToWindow \
-        [::combobox::convert %W -W].entry}
+    #bind Combobox <FocusIn> {::combobox::tkTabToWindow \
+        #[::combobox::convert %W -W].entry}
 
     # this closes the listbox if we get hidden
     bind Combobox <Unmap> {[::combobox::convert %W -W] close}
@@ -7987,10 +7969,10 @@ proc ::combobox::SetBindings {w} {
     # want to make sure the right window gets used (for shift-
     # tab we want it to appear as if the event was generated
     # on the frame rather than the entry.
-    bind $widgets(entry) <Tab> "::combobox::tkTabToWindow \[tk_focusNext \
-        $widgets(entry)\]; break"
-    bind $widgets(entry) <Shift-Tab> \
-        "::combobox::tkTabToWindow \[tk_focusPrev $widgets(this)\]; break"
+    #bind $widgets(entry) <Tab> "::combobox::tkTabToWindow \[tk_focusNext \
+        #$widgets(entry)\]; break"
+    #bind $widgets(entry) <Shift-Tab> \
+        #"::combobox::tkTabToWindow \[tk_focusPrev $widgets(this)\]; break"
 
     # this makes our "button" (which is actually a label)
     # do the right thing
@@ -10311,6 +10293,26 @@ proc get_cde_params {} {
     option add *Entry.HighlightThickness 1 userDefault
 
     return 1
+}
+
+# Maybe this could be enhanced to get configs from themes and so on?
+# Right now it just sets colors so everything isn't blinding white.
+proc get_aqua_params  {} {
+   global w
+
+   # This doesn't seem to do anything?
+   set w(selcolor) lightsteelblue
+
+   # button highlightbackground has to be the same as background
+   # or else there are little white boxes around the button "pill"
+   option add *background #cccccc userDefault
+   option add *Button.highlightBackground #cccccc userDefault
+
+   option add *Entry.HighlightThickness 2 userDefault
+   option add *Entry.highlightBackground $w(selcolor) userDefault
+   #option add *Canvas.background #eeeeee userDefault
+   option add *Entry.background #ffffff userDefault
+   option add *Text.background white userDefault
 }
 
 ###############################################################################
