@@ -4130,7 +4130,7 @@ proc save {} {
     puts $fid "set prefsFileVersion {$g(version)}\n"
 
     # now, put all of the preferences in the file
-    foreach key [array names pref] {
+    foreach key [lsort [array names pref]] {
         regsub "\n" $pref($key) "\n# " comment
         puts $fid "# $comment"
         puts $fid "define $key {$tmpopts($key)}\n"
