@@ -1,9 +1,9 @@
 #!/bin/sh
 #-*-tcl-*-
 # the next line restarts using wish \
-exec wish "$0" ${1+"$@"}
+exec wish80 "$0" -- ${1+"$@"}
 
-# $Id: tkdiff,v 1.2 2003-01-12 20:17:11 klassa Exp $
+# $Id: tkdiff,v 1.3 2003-01-12 20:18:01 klassa Exp $
 
 ###############################################################################
 #
@@ -48,7 +48,7 @@ exec wish "$0" ${1+"$@"}
 
 # set a couple o' globals...
 set g(name) "TkDiff"
-set g(version) "3.0 beta 8"
+set g(version) "3.00"
 set g(nativeMenus) 1
 
 # ok, I'll admit -- this is a personal preference. I suppose I ought to
@@ -70,8 +70,7 @@ switch $tcl_platform(platform) {
         } else {
             set opts(tmpdir) C:/temp
         }
-        if {![ info exists env(HOME) ]} { set env(HOME) C: }
-        set rcfile [file join $env(HOME) "_tkdiff.rc"]
+	set basercfile "_tkdiff.rc"
     }
     default {
         # Make menus and buttons prettier
@@ -82,16 +81,35 @@ switch $tcl_platform(platform) {
         } else {
             set opts(tmpdir) /tmp
         }
-        set rcfile [file join $env(HOME) ".tkdiffrc"]
+        set basercfile ".tkdiffrc"
     }
 }
 
+###############################################################################
+# compute preferences file name. Note that TKDIFFRC can hold either
+# a directory or a file, though we document it as being a file name
+###############################################################################
+if {[info exists env(TKDIFFRC)]} {
+    set rcfile $env(TKDIFFRC)
+    if {[file isdirectory $rcfile]} {
+	set rcfile [file join $rcfile $basercfile]
+    }
+
+} elseif {[info exists env(HOME)]} {
+    set rcfile [file join $env(HOME) $basercfile]
+
+} else {
+    set rcfile [file join "/" $basercfile]
+}
+
+###############################################################################
 # Fonts are selected based on platform.  Can anyone clean this
 # up by finding one set of fonts that looks good everywhere?
 # bdo - probably not; fonts are probably best left platform-specific
 # For windows I personally recommend Monotype.com, free from Microsoft
 # (not that I like Microsoft, but Monotype is a decent fixed width
 # font).
+###############################################################################
 
 if {$tcl_platform(platform) == "windows"} {
     if {$tk_version >= 8.0} {
@@ -171,15 +189,16 @@ if {$tcl_platform(platform) == "windows"} {
 set opts(geometry) 80x30
 
 # reporting options
-set report(doSideLeft) 0
-set report(doLineNumbersLeft) 1
-set report(doChangeMarkersLeft) 1
-set report(doTextLeft) 1
-
-set report(doSideRight) 1
-set report(doLineNumbersRight) 1
-set report(doChangeMarkersRight) 1
-set report(doTextRight) 1
+array set report {
+    doSideLeft           0
+    doLineNumbersLeft    1
+    doChangeMarkersLeft  1
+    doTextLeft           1
+    doSideRight          1
+    doLineNumbersRight   1
+    doChangeMarkersRight 1
+    doTextRight          1
+}
 
 set report(filename) "tkdiff.out"
 
@@ -187,14 +206,18 @@ set report(filename) "tkdiff.out"
 # Initialize
 ###############################################################################
 
-set g(returnValue) 0
-set g(showmerge)  0
-set g(mapheight) 0
-set g(mapborder) 0
-set g(ignore_event,1) 0
-set g(ignore_event,2) 0
-set g(ignore_hevent,1) 0
-set g(ignore_hevent,2) 0
+array set g {
+    returnValue     0
+    showmerge       0
+    mapheight       0
+    mapborder       0
+    thumbMinHeight  10
+    ignore_event,1  0
+    ignore_event,2  0
+    ignore_hevent,1 0
+    ignore_hevent,2 0
+}
+set g(thumbHeight)    $g(thumbMinHeight)
 
 if {[string first "color" [winfo visual .]] >= 0} {
     # We have color
@@ -230,10 +253,18 @@ if {[string first "color" [winfo visual .]] >= 0} {
 set opts(textopt) "$opts(textopt) -wrap none"
 
 ###############################################################################
-# Source ~/.tkdiffrc, to override defaults (if desired).
+# Source the rc file, which may override some of the defaults
+# Any errors will be reported 
 ###############################################################################
 
-catch {source $rcfile}
+if {[catch {source $rcfile} error]} {
+    set startupError [join [list \
+	    "There was an error in processing your startup file." \
+	    "\n$g(name) will still run, but some of your preferences" \
+	    "\nmay not be in effect." \
+	    "\n\nFile: $rcfile" \
+	    "\nError: $error"] " "]
+	}
 
 # a hack to handle older preferences files...
 # if the user has a diffopt defined in their rc file, we'll magically
@@ -255,7 +286,7 @@ proc do-exit {{returncode {}}} {
     catch {del-tmp}
 
     if {$returncode == ""} {
-        set returncode $g(returnValue)
+	set returncode $g(returnValue)
     }
 
     # exit with an appropriate return value
@@ -423,8 +454,8 @@ proc do-show-changebars {{show {}}} {
     if {$show != {}} {set opts(showcbs) $show}
 
     if {$opts(showcbs)} {
-        grid $w(LeftCB)   -row 0 -column 2 -sticky ns
-        grid $w(RightCB)  -row 0 -column 1 -sticky ns
+	grid $w(LeftCB)   -row 0 -column 2 -sticky ns
+	grid $w(RightCB)  -row 0 -column 1 -sticky ns
     } else {
         grid forget $w(LeftCB)
         grid forget $w(RightCB)
@@ -476,8 +507,8 @@ proc draw-line-numbers {} {
     set linestuff {}
     set cbstuff {}
     for {set i 1} {$i < $minlines} {incr i} {
-        append linestuff "$i\n"
-        append cbstuff " \n" ;# for now, just put in place holders...
+	append linestuff "$i\n"
+	append cbstuff " \n" ;# for now, just put in place holders...
     }
 
     $w(LeftInfo)  insert end $linestuff
@@ -486,18 +517,18 @@ proc draw-line-numbers {} {
     $w(RightCB)   insert end $cbstuff
 
     # Insert remaining line numbers. We'll cache the stuff to be
-    # inserted so we can do just one call in to the widget. This
+    # inserted so we can do just one call in to the widget. This 
     # should be much faster, relatively speaking, then inserting
     # data one line at a time.
     foreach mod {Left Right} {
-        set linestuff {}
-        set cbstuff   {}
+	set linestuff {}
+	set cbstuff   {}
         for {set i $minlines} {$i < $lines($mod)} {incr i} {
-            append linestuff "$i\n"
-            append cbstuff " \n" ;# for now, just put in place holders...
+	    append linestuff "$i\n"
+	    append cbstuff " \n" ;# for now, just put in place holders...
         }
-        $w(${mod}Info) insert end $linestuff
-        $w(${mod}CB) insert end $cbstuff
+	$w(${mod}Info) insert end $linestuff
+	$w(${mod}CB) insert end $cbstuff
     }
 
     $w(LeftCB)    configure -state disabled
@@ -913,14 +944,15 @@ proc create-display {} {
     bind . <Destroy> { del-tmp }
 
     # other misc. bindings
-    common-navigation $w(LeftText) $w(RightText)
+    common-navigation $w(LeftText) $w(LeftInfo) $w(LeftCB) \
+	    $w(RightText) $w(RightInfo) $w(RightCB)
 
     # normally, keyboard traversal using tab and shift-tab isn't
     # enabled for text widgets, since the default binding for these
-    # keys is to actually insert the tab charater. Because all of
+    # keys is to actually insert the tab charater. Because all of 
     # our text widgets are for display only, let's redefine the
     # default binding so the global <Tab> and <Shift-Tab> bindings
-    # are used.
+    # are used. 
     bind Text <Tab>       {continue}
     bind Text <Shift-Tab> {continue}
 
@@ -945,12 +977,10 @@ proc show-popupMenu { x y } {
 
         if {$window == $w(LeftText) || $window == $w(LeftInfo) || $window == $w(LeftCB)} {
             $w(popupMenu) configure -title "File 1"
-            set g(findWin) $w(LeftText)
-            set g(editWin) $w(LeftText)
+            set g(activeWindow) $w(LeftText)
         } else {
             $w(popupMenu) configure -title "File 2"
-            set g(findWin) $w(RightText)
-            set g(editWin) $w(RightText)
+            set g(activeWindow) $w(RightText)
         }
 
     } else {
@@ -970,32 +1000,55 @@ proc build-popupMenu {} {
 
     # this routine assumes the other windows already exist...
     menu $w(popupMenu)
-    foreach win [list LeftText RightText LeftInfo RightInfo LeftCB RightCB mapCanvas] {
+    foreach win [list LeftText RightText LeftInfo RightInfo \
+	    LeftCB RightCB mapCanvas] {
         bind $w($win) <3> {show-popupMenu %X %Y}
     }
 
     set m $w(popupMenu)
     $m add command -label "First Diff" -underline 0 \
-            -command [list $w(firstDiff) invoke] \
+            -command [list popupMenu first] \
             -accelerator "F"
     $m add command -label "Previous Diff" -underline 0 \
-            -command [list $w(prevDiff) invoke] \
+            -command [list popupMenu previous] \
             -accelerator "P"
     $m add command -label "Center Current Diff" -underline 0 \
-            -command [list $w(centerDiffs) invoke] \
+            -command [list popupMenu center] \
             -accelerator "C"
     $m add command -label "Next Diff"  -underline 0 \
-            -command [list $w(nextDiff) invoke] \
+            -command [list popupMenu next] \
             -accelerator "N"
     $m add command -label "Last Diff" -underline 0 \
-            -command [list $w(lastDiff) invoke] \
+            -command [list popupMenu last] \
             -accelerator "L"
     $m add separator
+    $m add command -label "Select Nearest Diff" -underline 0 \
+	    -command [list popupMenu nearest] \
+	    -accelerator "Double-Click"
+    $m add separator
     $m add command -label "Find...     " -underline 0 \
-            -command [list $w(find) invoke]
+	    -command [list popupMenu find]
     $m add command -label "Edit     " -underline 0 \
-        -command do-edit
+        -command [list popupMenu edit]
+}
 
+###############################################################################
+# handle popup menu commands
+###############################################################################
+proc popupMenu {command args} {
+    global g
+    global w
+
+    switch $command {
+	center		{$w(centerDiffs) invoke}
+	edit 		{do-edit}
+	find 		{$w(find)        invoke}
+	first 		{$w(firstDiff)   invoke}
+	last		{$w(lastDiff)    invoke}
+	nearest 	{moveNearest $g(activeWindow) mark insert}
+	next		{$w(nextDiff)    invoke}
+	previous	{$w(prevDiff)    invoke}
+    }
 }
 
 ###############################################################################
@@ -1105,7 +1158,7 @@ proc build-client {} {
             -xscrollcommand [list hscroll-sync 2]
 
     text $w(LeftInfo) \
-            -height 0 \
+	    -height 0 \
             -padx 0 \
             -width 6 \
             -borderwidth 0 \
@@ -1113,7 +1166,7 @@ proc build-client {} {
             -yscrollcommand [list vscroll-sync 1]
 
     text $w(RightInfo) \
-            -height 0 \
+	    -height 0 \
             -padx 0 \
             -width 6 \
             -borderwidth 0 \
@@ -1125,7 +1178,7 @@ proc build-client {} {
     # a single character (either "+", "-" or "!" for insertion, deletion
     # or change, respectively
     text $w(LeftCB) \
-            -height 0 \
+	    -height 0 \
             -padx 0 \
             -highlightthickness 0 \
             -wrap none \
@@ -1135,7 +1188,7 @@ proc build-client {} {
             -yscrollcommand [list vscroll-sync 1]
 
     text $w(RightCB) \
-            -height 0 \
+	    -height 0 \
             -padx 0 \
             -highlightthickness 0 \
             -wrap none \
@@ -1159,13 +1212,10 @@ proc build-client {} {
         foreach tag {difftag currtag deltag instag chgtag + - !} {
             eval "$widget tag configure $tag $opts($tag)"
         }
-        # Selection should have higher priority than other tags
-        $widget tag raise sel
     }
 
     # adjust the tag priorities a bit...
     foreach window [list LeftText RightText LeftCB RightCB LeftInfo RightInfo] {
-        $w($window) tag raise sel
         $w($window) tag raise deltag currtag
         $w($window) tag raise chgtag currtag
         $w($window) tag raise instag currtag
@@ -1174,9 +1224,9 @@ proc build-client {} {
 
     # these tags are specific to change bars
     foreach widget [list $w(LeftCB) $w(RightCB)] {
-        eval "$widget tag configure + $opts(+)"
-        eval "$widget tag configure - $opts(-)"
-        eval "$widget tag configure ! $opts(!)"
+	eval "$widget tag configure + $opts(+)"
+	eval "$widget tag configure - $opts(-)"
+	eval "$widget tag configure ! $opts(!)"
     }
 
     # build the map...
@@ -1213,12 +1263,10 @@ proc build-client {} {
     # I think what I *want* it to do is update the combobox and status
     # bar so the user can see where in the scheme of things they are,
     # but not actually select anything until they release the mouse.
-#    bind $w(mapCanvas) <1> "map-scroll %y "
-#    bind $w(mapCanvas) <Button1-Motion> "map-scroll %y 0"
-#    bind $w(mapCanvas) <2> "map-scroll %y"
-#    bind $w(mapCanvas) <Button2-Motion> "map-scroll %y 0"
-    bind $w(mapCanvas) <Button1-Motion> "map-seek %y"
-    bind $w(mapCanvas) <ButtonRelease-1> "map-scroll %y"
+    bind $w(mapCanvas) <ButtonPress-1>   [list handleMapEvent B1-Press %y]
+    bind $w(mapCanvas) <Button1-Motion>  [list handleMapEvent B1-Motion %y]
+    bind $w(mapCanvas) <ButtonRelease-1> [list handleMapEvent B1-Release %y]
+
     # this is a dummy frame we're going to create that's the
     # same height as a horizontal scrollbar.
     frame $w(client).dummyFrame \
@@ -1275,11 +1323,11 @@ proc build-client {} {
     grid columnconfigure $w(client) 1 -weight 0
     grid columnconfigure $w(client) 2 -weight 1
 
-    # this adjusts the variable g(findWin) to be whatever text
+    # this adjusts the variable g(activeWindow) to be whatever text 
     # widget has the focus...
-    bind $w(LeftText) <1> {set g(findWin) $w(LeftText)}
-    bind $w(RightText) <1> {set g(findWin) $w(RightText)}
-    set g(findWin) $w(LeftText) ;# establish a default
+    bind $w(LeftText) <1> {set g(activeWindow) $w(LeftText)}
+    bind $w(RightText) <1> {set g(activeWindow) $w(RightText)}
+    set g(activeWindow) $w(LeftText) ;# establish a default
 
     # this will make the UI toe the line WRT user preferences
     do-show-map
@@ -1307,7 +1355,7 @@ proc show-find {} {
                 [list wm withdraw $w(findDialog)]
 
         wm withdraw $w(findDialog)
-        update idletasks
+	update idletasks
 
         frame $w(findDialog).content -bd 2 -relief groove
         pack $w(findDialog).content -side top -fill both -expand y \
@@ -1331,19 +1379,19 @@ proc show-find {} {
 
         entry $ff.entry -textvariable g(findString)
 
-        checkbutton $ff.searchCase \
-                -text "Ignore Case" \
-                -offvalue 0 \
-                -onvalue 1 \
-                -indicatoron true \
-                -variable g(findIgnoreCase)
+	checkbutton $ff.searchCase \
+		-text "Ignore Case" \
+		-offvalue 0 \
+		-onvalue 1 \
+		-indicatoron true \
+		-variable g(findIgnoreCase)
 
-        grid $ff.label -row 0 -column 0 -sticky e
-        grid $ff.entry -row 0 -column 1 -sticky ew
-        grid $ff.searchCase -row 0 -column 2 -sticky w
-        grid columnconfigure $ff 0 -weight 0
-        grid columnconfigure $ff 1 -weight 1
-        grid columnconfigure $ff 2 -weight 0
+	grid $ff.label -row 0 -column 0 -sticky e
+	grid $ff.entry -row 0 -column 1 -sticky ew
+	grid $ff.searchCase -row 0 -column 2 -sticky w
+	grid columnconfigure $ff 0 -weight 0
+	grid columnconfigure $ff 1 -weight 1
+	grid columnconfigure $ff 2 -weight 0
 
         # we need this in other places...
         set w(findEntry) $ff.entry
@@ -1372,12 +1420,12 @@ proc show-find {} {
                 -indicatoron true \
                 -text "Left" \
                 -value $w(LeftText) \
-                -variable g(findWin)
+                -variable g(activeWindow)
         radiobutton $of.windowRight \
                 -indicatoron true \
                 -text "Right" \
                 -value $w(RightText) \
-                -variable g(findWin)
+                -variable g(activeWindow)
 
 
         label $of.searchLabel -text "Search Type:" -anchor e
@@ -1403,21 +1451,22 @@ proc show-find {} {
         grid $of.searchLabel    -row 2 -column 0 -sticky w
         grid $of.searchExact    -row 2 -column 1 -sticky w
         grid $of.searchRegexp   -row 2 -column 2 -sticky w
-
-        grid columnconfigure $of 0 -weight 0
-        grid columnconfigure $of 1 -weight 0
-        grid columnconfigure $of 2 -weight 1
+	
+	grid columnconfigure $of 0 -weight 0
+	grid columnconfigure $of 1 -weight 0
+	grid columnconfigure $of 2 -weight 1
 
         set g(findDirection) "-forward"
         set g(findType) "-exact"
-        set g(findIgnoreCase) 1
+	set g(findIgnoreCase) 1
         set g(lastSearch) ""
-        if {$g(findWin) == ""} {
-            set g(findWin) [focus]
-            if {$g(findWin) != $w(LeftText) && $g(findWin) != $w(RightText)} {
-                set g(findWin) $w(LeftText)
-            }
-        }
+	if {$g(activeWindow) == ""} {
+	    set g(activeWindow) [focus]
+	    if {$g(activeWindow) != $w(LeftText) && \
+		    $g(activeWindow) != $w(RightText)} {
+		set g(activeWindow) $w(LeftText)
+	    }
+	}
     }
 
     centerWindow $w(findDialog)
@@ -1451,7 +1500,7 @@ proc do-find {} {
         return
     }
 
-    set win $g(findWin)
+    set win $g(activeWindow)
     if {$win == ""} {set win $w(LeftText)}
     if {$g(lastSearch) != ""} {
         if {$g(findDirection) == "-forward"} {
@@ -1464,10 +1513,10 @@ proc do-find {} {
     }
 
     if {$g(findIgnoreCase)} {
-        set result [$win search $g(findDirection) $g(findType) -nocase -- \
+	set result [$win search $g(findDirection) $g(findType) -nocase -- \
             $g(findString) $start]
     } else {
-        set result [$win search $g(findDirection) $g(findType) -- \
+	set result [$win search $g(findDirection) $g(findType) -- \
             $g(findString) $start]
     }
     if {[string length $result] > 0} {
@@ -1564,20 +1613,20 @@ proc build-menubar {} {
     # File menu...
     menu $fileMenu
     $fileMenu add command \
-            -label "New..." \
-            -underline 0 \
-            -command [list do-new-diff]
+	    -label "New..." \
+	    -underline 0 \
+	    -command [list do-new-diff]
     $fileMenu add command \
-            -label "Recompute Diffs" \
-            -underline 0 \
-            -command do-diff
+	    -label "Recompute Diffs" \
+	    -underline 0 \
+	    -command recompute-diff
     $fileMenu add command \
-            -label "Write Report..." \
+	    -label "Write Report..." \
             -command [list write-report popup]
     $fileMenu add separator
     $fileMenu add command \
-            -label "Exit" \
-            -underline 1 \
+	    -label "Exit" \
+	    -underline 1 \
             -command do-exit
 
     set "g(tooltip,Exit)" "Exit $g(name)"
@@ -1594,9 +1643,9 @@ proc build-menubar {} {
     $editMenu add command -label "Find..." -underline 0 -command show-find
     $editMenu add separator
     $editMenu add command -label "Edit File 1" \
-        -command {global g w; set g(findWin) $w(LeftText) ; do-edit}
+        -command {global g w; set g(activeWindow) $w(LeftText) ; do-edit}
     $editMenu add command -label "Edit File 2" \
-        -command {global g w; set g(findWin) $w(RightText) ; do-edit}
+        -command {global g w; set g(activeWindow) $w(RightText) ; do-edit}
     $editMenu add separator
     $editMenu add command \
             -label "Preferences..." \
@@ -1624,10 +1673,10 @@ proc build-menubar {} {
             -command do-show-linenumbers
 
     $viewMenu add checkbutton \
-            -label "Show Change Bars" \
-            -underline 0 \
-            -variable opts(showcbs) \
-            -command do-show-changebars
+	    -label "Show Change Bars" \
+	    -underline 0 \
+	    -variable opts(showcbs) \
+	    -command do-show-changebars
 
     $viewMenu add checkbutton \
             -label "Show Diff Map" \
@@ -1675,7 +1724,7 @@ proc build-menubar {} {
             -accelerator "L"
 
     set "g(tooltip,Show Change Bars)" \
-            "If set, show the changebar column for each line of each file"
+	    "If set, show the changebar column for each line of each file"
     set "g(tooltip,Show Line Numbers)"  \
             "If set, show line numbers beside each line of each file"
     set "g(tooltip,Synchronize Scrollbars)"  \
@@ -1801,6 +1850,7 @@ proc build-toolbar {} {
     toolsep $toolbar.sep2
     toolsep $toolbar.sep3
     toolsep $toolbar.sep4
+    toolsep $toolbar.sep5
 
     # find...
     toolbutton $find -text "Find" -width 5 -command do-find -bd 1
@@ -1811,7 +1861,6 @@ proc build-toolbar {} {
     toolbutton $firstDiff -text "First" -width 5 -command [list move first] -bd 1
     toolbutton $lastDiff  -text "Last" -width 5 -command [list move last] -bd 1
     toolbutton $centerDiffs -text "Center" -width 5 -command center -bd 1
-
 
     ::combobox::combobox $combo -editable false -width 30 -command moveTo
 
@@ -1830,11 +1879,12 @@ proc build-toolbar {} {
             -variable g(toggle) \
             -command [list do-merge-choice 1] \
             -takefocus 0
-    # this is gross. We want the label next to the radiobuttons to
+
+    # this is gross. We want the label next to the radiobuttons to 
     # be disabled if the radiobuttons are disabled. But, labels can't
     # be disabled, so we'll use a "dead" button
     button $mergeChoiceLbl -text "Merge Choice:" -borderwidth 0 -command {} \
-            -highlightthickness 0
+	    -highlightthickness 0
 
     pack $combo -side left -padx 2
     pack $toolbar.sep1 -side left -fill y -pady 2 -padx 2
@@ -1844,7 +1894,7 @@ proc build-toolbar {} {
             -side left  -pady 2 -padx 0
     pack $toolbar.sep3 -side left -fill y -pady 2 -padx 2
     pack $centerDiffs -side left  -pady 2 -padx 0
-    pack $toolbar.sep4 -side left -fill y -pady 2 -padx 2
+    pack $toolbar.sep5 -side left -fill y -pady 2 -padx 2
     pack $mergeChoiceLbl $mergeChoice1 $mergeChoice2  -side left -padx 2
 
     # these bindings provide pseudo-tooltips. Note that if some menu
@@ -1900,6 +1950,55 @@ proc build-status {} {
     pack $w(statusLabel) -side left -fill both -expand y
 }
 
+###############################################################################
+# handles events over the map
+###############################################################################
+proc handleMapEvent {event y} {
+    global opts
+    global w
+    global g
+
+    switch $event {
+
+	B1-Press {
+	    set ty1 [lindex $g(thumbBbox) 1]
+	    set ty2 [lindex $g(thumbBbox) 3]
+	    if {$y >= $ty1 && $y <= $ty2} {
+		set g(mapScrolling) 1
+	    }
+	}
+
+	B1-Motion {
+	    if {[info exists g(mapScrolling)]} {
+		map-seek $y
+	    }
+	}
+
+	B1-Release {
+	    show-info ""
+	    set ty1 [lindex $g(thumbBbox) 1]
+	    set ty2 [lindex $g(thumbBbox) 3]
+	    # if we release over the trough (actually, *not* over the thumb),
+	    # just scroll by the size of the thumb
+	    if {$y < $ty1 || $y > $ty2} {
+		if {$y < $ty1} {
+		    # if vertical scrollbar syncing is turned on,
+		    # all the other windows should toe the line 
+		    # appropriately...
+		    $w(RightText) yview scroll -1 pages
+		} else {
+		    $w(RightText) yview scroll 1 pages
+		}
+
+	    } else {
+		# do nothing
+	    }
+
+	    catch {unset g(mapScrolling)}
+	}
+    }
+}
+
 # makes a toolbar "separator"
 proc toolsep {w} {
     label $w -image [image create photo] -highlightthickness 0 -bd 1 \
@@ -1937,7 +2036,7 @@ proc toolbutton:handleEvent {event w {isToolbutton 1}} {
         "<Enter>" {
             showTooltip button $w
             if {$opts(fancyButtons) && $isToolbutton && \
-                [$w cget -state] == "normal"} {
+		[$w cget -state] == "normal"} {
                 $w configure -relief raised
             }
         }
@@ -1950,7 +2049,7 @@ proc toolbutton:handleEvent {event w {isToolbutton 1}} {
         "<FocusIn>" {
             showTooltip button $w
             if {$opts(fancyButtons) && $isToolbutton && \
-                [$w cget -state] == "normal"} {
+		[$w cget -state] == "normal"} {
                 $w configure -relief raised
             }
         }
@@ -1970,31 +2069,26 @@ proc map-move-thumb {y1 y2} {
     global g
     global finfo
     global w
-
-    set minheight 8
+    
     set thumbheight [expr {($y2 - $y1) * $g(mapheight)}]
-    if {$thumbheight < $minheight} {set thumbheight $minheight}
+    if {$thumbheight < $g(thumbMinHeight)} {
+	set thumbheight $g(thumbMinHeight)
+    }
 
     if {![info exists g(mapwidth)]} {set g(mapwidth) 0}
     set x1 1
     set x2 [expr {$g(mapwidth) - 3}]
-
-    # the thumb needs to be centered over the y1 that was given us. So,
-    # simply take that value and subtract the height. But then we have to
-    # add in a couple to take into consideration border widths. Feh.
-    set y1 [expr {($y1 * $g(mapheight)) - ($thumbheight / 2) + 2}]
+    
+    # why -2? it's the thickness of our border...
+    set y1 [expr {int(($y1 * $g(mapheight)) - 2)}]
     if {$y1 < 0} {set y1 0}
+
     set y2 [expr $y1 + $thumbheight]
     if {$y2 > $g(mapheight)} {
-        set y2 $g(mapheight)
-        set y1 [expr $y2 - $thumbheight]
+	set y2 $g(mapheight) 
+	set y1 [expr $y2 - $thumbheight]
     }
-#    set y1 [expr {$y1 * $lasty}]
-#    set y2 [expr {$y2 * $lasty}]
-#    set height [expr {$y2 - $y1}]
-    # make sure we are at least minheight pixels high
-#    if {$height < $minheight} {set y2 [expr {$y1 + $minheight}]}
-
+    
     set dx1 [expr {$x1 + 1}]
     set dx2 [expr {$x2 - 1}]
     set dy1 [expr {$y1 + 1}]
@@ -2004,8 +2098,10 @@ proc map-move-thumb {y1 y2} {
             $x1 $y2 $x1 $y1 $x2 $y1 $dx2 $dy1 $dx1 $dy1 $dx1 $dy2
     $w(mapCanvas) coords thumbLR \
             $dx1 $y2 $x2 $y2 $x2 $dy1 $dx2 $dy1 $dx2 $dy2 $dx1 $dy2
-}
 
+    set g(thumbBbox) [list $x1 $y1 $x2 $y2]
+    set g(thumbHeight) $thumbheight
+}
 
 ###############################################################################
 # Bind keys for Next, Prev, Center, Merge choices 1 and 2
@@ -2015,34 +2111,34 @@ proc common-navigation {args} {
 
     bind . <Control-f> do-find
 
-    foreach text $args {
-        bind $text <Any-KeyPress> {break};
-        bind $text <<Paste>> {break};
+    foreach widget $args {
+	bind $widget <Any-KeyPress> {break};
+	bind $widget <<Paste>> {break};
 
-        # these bindings allow control-f, tab and shift-tab to work
-        # in spite of the fact we bound Any-KeyPress to a null action
-        bind $text <Control-f> continue;
-        bind $text <Tab> continue;
-        bind $text <Shift-Tab> continue;
+	# these bindings allow control-f, tab and shift-tab to work
+	# in spite of the fact we bound Any-KeyPress to a null action
+	bind $widget <Control-f> continue;
+	bind $widget <Tab> continue;
+	bind $widget <Shift-Tab> continue;
 
-        bind $text <c> "$w(centerDiffs) invoke; break"
-        bind $text <n> "$w(nextDiff) invoke; break"
-        bind $text <p> "$w(prevDiff) invoke; break"
-        bind $text <f> "$w(firstDiff) invoke; break"
-        bind $text <l> "$w(lastDiff) invoke; break"
-        bind $text <Return> "moveNearest $text mark insert;break"
+        bind $widget <c> "$w(centerDiffs) invoke; break"
+        bind $widget <n> "$w(nextDiff) invoke; break"
+        bind $widget <p> "$w(prevDiff) invoke; break"
+        bind $widget <f> "$w(firstDiff) invoke; break"
+        bind $widget <l> "$w(lastDiff) invoke; break"
+        bind $widget <Return> "moveNearest $widget mark insert;break"
 
-        # these bindings keep Alt- modified keys from triggering
-        # the above actions. This way, any Alt combinations that
-        # should open a menu will...
-        foreach key [list c n p f l] {
-            bind $text <Alt-$key> {continue}
-        }
+	# these bindings keep Alt- modified keys from triggering
+	# the above actions. This way, any Alt combinations that
+	# should open a menu will...
+	foreach key [list c n p f l] {
+	    bind $widget <Alt-$key> {continue}
+	}
 
-        bind $text <Double-1> "moveNearest $text xy %x %y; break"
+        bind $widget <Double-1> "moveNearest $widget xy %x %y; break"
 
-        bind $text <Key-1> "$w(mergeChoice1) invoke; break"
-        bind $text <Key-2> "$w(mergeChoice2) invoke; break"
+        bind $widget <Key-1> "$w(mergeChoice1) invoke; break"
+        bind $widget <Key-2> "$w(mergeChoice2) invoke; break"
     }
 }
 
@@ -2093,25 +2189,25 @@ proc customize {} {
     pack $w(preferences).buttons.apply   -side right -padx 1  -pady 5
 
     # a series of checkbuttons to act as a poor mans notebook tab
-    frame $w(preferences).notebook -bd 0
+    frame $w(preferences).notebook -bd 0 
     pack $w(preferences).notebook -side top -fill x -pady 4
     set pagelist {}
     foreach page [list General Display Appearance] {
-        set frame $w(preferences).f$page
-        lappend pagelist $frame
-        set rb $w(preferences).notebook.f$page
-        radiobutton $rb \
-                -command "customize-selectPage $frame" \
-                -variable g(prefPage) \
-                -value $frame \
-                -text $page \
-                -indicatoron false \
-                -width 10 \
-                -borderwidth 1
+	set frame $w(preferences).f$page
+	lappend pagelist $frame
+	set rb $w(preferences).notebook.f$page
+	radiobutton $rb \
+		-command "customize-selectPage $frame" \
+		-variable g(prefPage) \
+		-value $frame \
+		-text $page \
+		-indicatoron false \
+		-width 10 \
+		-borderwidth 1
 
-        pack $rb -side left
+	pack $rb -side left
 
-        frame $frame -bd 2 -relief groove -width 400 -height 300
+	frame $frame -bd 2 -relief groove -width 400 -height 300
     }
     set g(prefPage) $w(preferences).fGeneral
 
@@ -2121,18 +2217,43 @@ proc customize {} {
     # General
     set count 0
     set frame $w(preferences).fGeneral
-    foreach key {diffcmd tmpdir editor} {
+    foreach key {diffcmd tmpdir editor geometry} {
         label $frame.l$count -text "$pref($key): " -anchor w
         set tmpopts($key) $opts($key)
         entry $frame.e$count \
                 -textvariable tmpopts($key) -width 50 \
                 -bd 2 -relief sunken
 
-        grid $frame.l$count -row $count -column 0 -sticky w -padx 5 -pady 2
-        grid $frame.e$count -row $count -column 1 -sticky ew -padx 5 -pady 2
+	grid $frame.l$count -row $count -column 0 -sticky w -padx 5 -pady 2
+	grid $frame.e$count -row $count -column 1 -sticky ew -padx 5 -pady 2
 
         incr count
     }
+
+    # this is just for filler...
+    label $frame.filler -text {}
+    grid $frame.filler -row $count
+    incr count
+
+    foreach key {fancyButtons autocenter syncscroll} {
+	label $frame.l$count -text "$pref($key): " -anchor w
+	set tmpopts($key) $opts($key)
+	checkbutton $frame.c$count \
+		-indicatoron true \
+		-text "$pref($key)" \
+		-justify left \
+		-onvalue 1 \
+		-offvalue 0 \
+		-variable tmpopts($key)
+
+	set tmpopts($key) $opts($key)
+
+	grid $frame.c$count -row $count -column 0 -sticky w -padx 5 \
+		-columnspan 2
+
+        incr count
+    }
+
     grid columnconfigure $frame 0 -weight 0
     grid columnconfigure $frame 1 -weight 1
 
@@ -2140,7 +2261,7 @@ proc customize {} {
     # up any extra room
 
     grid rowconfigure    $frame $count -weight 1
-
+	
     # pack this window for a brief moment, and compute the window
     # size. We'll do this for each "page" and find the largest
     # size to be the size of the dialog
@@ -2160,8 +2281,8 @@ proc customize {} {
                 -textvariable tmpopts($key) \
                 -bd 2 -relief sunken
 
-        grid $frame.l$count -row $count -column 0 -sticky w  -padx 5 -pady 2
-        grid $frame.e$count -row $count -column 1 -sticky ew -padx 5 -pady 2
+	grid $frame.l$count -row $count -column 0 -sticky w  -padx 5 -pady 2
+	grid $frame.e$count -row $count -column 1 -sticky ew -padx 5 -pady 2
 
         incr count
     }
@@ -2191,54 +2312,41 @@ proc customize {} {
     # an x means an empty column; a - means an empty row
     set col 0
     foreach key [list \
-            showln       tagln      \
-            showcbs      tagcbs     \
-            showmap      colorcbs   \
-            x            tagtext    \
-            -                       \
-            autocenter   syncscroll \
-            fancyButtons x          \
-            -                      ] {
+	    showln       tagln      \
+	    showcbs      tagcbs     \
+	    showmap      colorcbs   \
+	    x            tagtext    \
+	    -                      ] {
 
         if {$key == "x"} {
-            set col [expr {$col ? 0 : 1}]
-            if {$col == 0} {incr row}
-            continue
-        }
+	    set col [expr {$col ? 0 : 1}]
+	    if {$col == 0} {incr row}
+	    continue
+	}
 
-        if {$key == "-"} {
-            frame $frame.f${row} -bd 0 -height 4
-            grid $frame.f${row} -row $row -column 0 -columnspan 2 \
-                    -padx 20 -pady 4 -sticky nsew
-            set col 1 ;# will force next column to zero and incr row
+	if {$key == "-"} {
+	    frame $frame.f${row} -bd 0 -height 4
+	    grid $frame.f${row} -row $row -column 0 -columnspan 2 \
+		    -padx 20 -pady 4 -sticky nsew
+	    set col 1 ;# will force next column to zero and incr row
 
-        } else {
+	} else {
 
-            checkbutton $frame.c${row}${col} \
-                    -indicatoron true \
-                    -text "$pref($key)" \
-                    -onvalue 1 \
-                    -offvalue 0 \
-                    -variable tmpopts($key)
+	    checkbutton $frame.c${row}${col} \
+		    -indicatoron true \
+		    -text "$pref($key)" \
+		    -onvalue 1 \
+		    -offvalue 0 \
+		    -variable tmpopts($key)
 
-            set tmpopts($key) $opts($key)
+	    set tmpopts($key) $opts($key)
 
-            grid $frame.c${row}$col -row $row -column $col -sticky w -padx 5
-        }
+	    grid $frame.c${row}$col -row $row -column $col -sticky w -padx 5
+	}
 
-        set col [expr {$col ? 0 : 1}]
-        if {$col == 0} {incr row}
+	set col [expr {$col ? 0 : 1}]
+	if {$col == 0} {incr row}
     }
-
-    # we need one more widget for the window geometry...
-    set tmpopts(geometry) $opts(geometry)
-    frame $frame.geometry -bd 0
-    label $frame.geometry.l -text "$pref(geometry): "
-    entry $frame.geometry.e -textvariable tmpopts(geometry)
-    pack $frame.geometry.l -side left
-    pack $frame.geometry.e -side left -fill both -expand y
-    grid $frame.geometry -row $row -column 0 -columnspan 2 -sticky w -padx 5
-    incr row
 
     grid columnconfigure $frame 0 -weight 0
     grid columnconfigure $frame 1 -weight 0
@@ -2269,12 +2377,13 @@ proc customize-selectPage {{frame {}}} {
     global g w
 
     if {$frame == ""} {
-        set frame $g(prefPage)
+	set frame $g(prefPage)
     }
 
     pack forget $w(preferences).fGeneral
     pack forget $w(preferences).fAppearance
     pack forget $w(preferences).fDisplay
+    pack forget $w(preferences).fBehavior
     pack $frame -side right -fill both -expand y
 }
 
@@ -2305,8 +2414,9 @@ proc customize-initLabels {} {
 
     set pref(colorcbs)   {Color change bars to match the diff map}
     set pref(tagtext)    {Highlight file contents}
-    set pref(tagcbs)   {Highlight change bars}
-    set pref(tagln)   {Highlight line numbers}
+    set pref(tagcbs)     {Highlight change bars}
+    set pref(tagln)      {Highlight line numbers}
+	
 }
 
 ###############################################################################
@@ -2321,7 +2431,7 @@ proc apply {} {
     if {! [file isdirectory $tmpopts(tmpdir)]} {
         do-error "Invalid temporary directory $tmpopts(tmpdir)"
     }
-
+    
     if {[catch "$w(LeftText) configure $tmpopts(textopt)
                 $w(RightText) configure $tmpopts(textopt)"]} {
         do-error "Invalid settings for text widget: \n\n$tmpopts(textopt)"
@@ -2338,7 +2448,7 @@ proc apply {} {
     eval "$w(RightInfo) configure $tmpopts(textopt)"
 
     if {$tmpopts(geometry) == "" || \
-            [catch {scan $tmpopts(geometry) "%dx%d" width height} result]} {
+	    [catch {scan $tmpopts(geometry) "%dx%d" width height} result]} {
         do-error "invalid geometry setting: $tmpopts(geometry)"
         return
     }
@@ -2362,15 +2472,15 @@ proc apply {} {
 
     # set opts to the values from tmpopts
     foreach key {diffcmd textopt difftag currtag deltag instag chgtag \
-                 tmpdir editor showmap showln showcbs autocenter syncscroll \
-                 tagln tagcbs tagtext \
-                 geometry fancyButtons colorcbs} {
+	         tmpdir editor showmap showln showcbs autocenter syncscroll \
+		 tagln tagcbs tagtext \
+		 geometry fancyButtons colorcbs} {
         set opts($key) $tmpopts($key)
     }
 
     # reconfigure the buttons, since "fancyButtons" may have changed
     foreach button [list prevDiff nextDiff firstDiff lastDiff \
-            centerDiffs find] {
+	    centerDiffs find] {
         if {$opts(fancyButtons)} {
             $w($button) configure -relief flat
         } else {
@@ -2411,13 +2521,14 @@ proc save {} {
 
     # now, put all of the preferences in the file
     foreach key {diffcmd textopt difftag currtag deltag instag \
-                 chgtag showmap showln showcbs autocenter syncscroll \
-                 fancyButtons geometry editor colorcbs \
-                 tagln tagcbs tagtext} {
-        puts $fid "# $pref($key)"
+	         chgtag showmap showln showcbs autocenter syncscroll \
+		 fancyButtons geometry editor colorcbs \
+		 tagln tagcbs tagtext } {
+	regsub "\n" $pref($key) "\n# " comment
+        puts $fid "# $comment"
         puts $fid "set opts($key) {$tmpopts($key)}\n"
     }
-
+    
     # Seems we can't use {$tmpdir} here or embedded \\ don't translate to \
 
     puts $fid "# $pref(tmpdir)"
@@ -2487,7 +2598,7 @@ proc vscroll-sync {id args} {
 
     # If ignore_event is true, we've already taken care of scrolling.
     # We're only interested in the first event.
-    if {$g(ignore_event,$id)} {
+    if {$g(ignore_event,$id) || [info exists g(interactiveMapScrolling)]} {
         return
     }
 
@@ -2586,7 +2697,7 @@ proc map-resize {args} {
 
     set mapwidth  [winfo width $w(map)]
     set g(mapborder) [expr { [$w(map) cget -borderwidth] + \
-            [$w(map) cget -highlightthickness]}]
+	    [$w(map) cget -highlightthickness]}]
     set mapheight [expr {[winfo height $w(map)] - $g(mapborder) * 2}]
 
     # We'll get a couple of "resize" events, so don't draw a map
@@ -2612,7 +2723,7 @@ proc map-resize {args} {
 }
 
 ###############################################################################
-# Button down on map scrolls windows, selects nearest diff
+# scroll to diff region nearest to y
 ###############################################################################
 
 proc map-scroll {y} {
@@ -2668,7 +2779,7 @@ proc find-diff {line} {
 
     set top $line
     set newtop [expr {$top - int([$w(LeftText) index end]) + \
-            int([$w(RightText) index end])}]
+	    int([$w(RightText) index end])}]
 
     for {set low 1; set high $g(count); set i [expr {($low + $high) / 2}]} \
             {$i >= $low}                                                 \
@@ -2888,7 +2999,7 @@ proc merge-add-marks {} {
     global w
 
     for {set i 1} {$i <= $g(count)} {incr i} {
-        foreach [list thisdiff s1 e1 s2 e2 type] $g(pdiff,$i) {}
+	foreach [list thisdiff s1 e1 s2 e2 type] $g(pdiff,$i) {}
         set delta [expr {$type == "a" ? 1 : 0}]
         $w(mergeText) mark set mark$i $s1.0+${delta}lines
         $w(mergeText) mark gravity mark$i left
@@ -2968,7 +3079,7 @@ proc merge-center {} {
     if {$difflines / $totallines < $ywindow} {
         # Diff fits in window, center it
         $w(mergeText) yview moveto [expr {($firstline + $difflines / 2) \
-                / $totallines - $ywindow / 2}]
+		/ $totallines - $ywindow / 2}]
     } else {
         # Diff too big, show top part
         $w(mergeText) yview moveto [expr {($firstline - 1) / $totallines}]
@@ -3000,23 +3111,23 @@ proc do-merge-choice {newversion} {
 ###############################################################################
 
 proc extract {line} {
-    # the line darn well better be of the form <range><op><range>,
-    # where op is one of "a","c" or "d". range will either be a
+    # the line darn well better be of the form <range><op><range>, 
+    # where op is one of "a","c" or "d". range will either be a 
     # single number or two numbers separated by a comma.
 
     # is this a cool regular expression, or what? :-)
     regexp {([0-9]*)(,([0-9]*))?([a-z])([0-9]*)(,([0-9]*))?} $line \
-            matchvar s1 x e1 op s2 x e2
+	    matchvar s1 x e1 op s2 x e2
     if {[string length $e1] == 0} {set e1 $s1}
     if {[string length $e2] == 0} {set e2 $s2}
 
     if {[info exists s1] && [info exists s2]} {
 #        return "$line $s1 $e1 $s2 $e2 $op"
-        return [list $line $s1 $e1 $s2 $e2 $op]
+	return [list $line $s1 $e1 $s2 $e2 $op]
     } else {
         fatal-error "Cannot parse output from diff:\n$line"
     }
-
+    
 }
 
 ###############################################################################
@@ -3106,7 +3217,7 @@ proc add-lines {pos} {
     $w(RightCB) configure -state normal
     $w(LeftCB) configure -state normal
     for {set i $s1} {$i <= $e1} {incr i} {
-        $w(LeftCB)  insert $i.0 $lefttext
+        $w(LeftCB)  insert $i.0 $lefttext 
         $w(RightCB) insert $i.0 $righttext
     }
 
@@ -3126,7 +3237,7 @@ proc add-tag {wgt tag start end type new {exact 0}} {
             ($type == "a" && $new) || \
             ($type == "d" && !$new)} {
         # Mark block of lines
-        $wgt tag add $tag $start.0 [expr {$end + 1}].0
+	$wgt tag add $tag $start.0 [expr {$end + 1}].0
 
     } else {
         # Put 6 char wide mark in left column
@@ -3134,6 +3245,7 @@ proc add-tag {wgt tag start end type new {exact 0}} {
             $wgt tag add $tag $idx.0 $idx.6
         }
     }
+
 }
 
 ###############################################################################
@@ -3186,14 +3298,14 @@ proc set-tag {pos newtag {oldtag ""} {setpos 0}} {
         add-tag $w(RightText) $coltag $s2 $e2 $dt 1
     }
     if {$opts(tagcbs)} {
-        if {$opts(colorcbs)} {
-            add-tag $w(LeftCB)  $lcbtag $s1 $e1 $dt 1
-            add-tag $w(RightCB) $rcbtag $s2 $e2 $dt 1
-        } else {
-            add-tag $w(LeftCB)  $newtag $s1 $e1 $dt 1
-            add-tag $w(RightCB) $newtag $s2 $e2 $dt 1
-            add-tag $w(RightCB) $coltag $s2 $e2 $dt 1
-        }
+	if {$opts(colorcbs)} {
+	    add-tag $w(LeftCB)  $lcbtag $s1 $e1 $dt 1
+	    add-tag $w(RightCB) $rcbtag $s2 $e2 $dt 1
+	} else {
+	    add-tag $w(LeftCB)  $newtag $s1 $e1 $dt 1
+	    add-tag $w(RightCB) $newtag $s2 $e2 $dt 1
+	    add-tag $w(RightCB) $coltag $s2 $e2 $dt 1
+	}
 
     }
     if {$opts(tagln)} {
@@ -3224,6 +3336,11 @@ proc set-tag {pos newtag {oldtag ""} {setpos 0}} {
         }
     }
 
+    # make sure the sel tag has the highest priority
+    foreach window [list LeftText RightText LeftCB RightCB LeftInfo RightInfo] {
+	$w($window) tag raise sel
+    }
+
     return $thisdiff
 }
 
@@ -3238,17 +3355,19 @@ proc moveNearest {window mode args} {
             set x [lindex $args 0]
             set y [lindex $args 1]
             set index [$window index @$x,$y]
+
+	    set line [expr {int($index)}]
+	    set diff [find-diff $line]
         }
         "mark" {
             set index [$window index [lindex $args 0]]
+	    set line [expr {int($index)}]
+	    set diff [find-diff $line]
         }
     }
 
     # ok, we have an index
-    set line [expr {int($index)}]
-    set foo [find-diff $line]
-
-    move [lindex $foo 0] 0
+    move [lindex $diff 0] 0 0
 }
 
 ###############################################################################
@@ -3263,30 +3382,24 @@ proc moveTo {window value} {
     move $index 0
 }
 
+###############################################################################
+# this is called when the user scrolls the map thumb interactively.
+###############################################################################
 proc map-seek {y} {
     global g
     global w
 
-    set yview [expr {double ($y) / double($g(mapheight))}]
-    # Show text corresponding to map
+    set y [expr $y - 2]
+    set yview [expr {(double($y) / double($g(mapheight)))}]
+
+    # Show text corresponding to map; setting interactiveMapScrolling
+    # will keep us from causing the thumb to be re-redrawn.
+    set g(interactiveMapScrolling) 1
     catch {$w(RightText) yview moveto $yview} result
-
-    # Find the diff region closest to the middle of the screen
-    set winhalf [expr {[winfo height $w(RightText)] / 2}]
-    set result [find-diff [expr {int([$w(RightText) index @1,$winhalf])}]]
-    scan $result "%d %d" i newtop
-
-    # update the combobox. We don't want the combobox's command to
-    # be called, so we'll disable it temporarily
-    incr i -1
-    $w(combo) configure -commandstate "disabled"
-    $w(combo) configure -value [lindex [$w(combo) list get 0 end] $i]
-    $w(combo) configure -commandstate "normal"
-
-    # update the status line
-    set g(statusCurrent) "$i of $g(count)"
+    unset g(interactiveMapScrolling)
 
 }
+
 
 ###############################################################################
 # Move the "current" diff indicator (i.e. go to the next or previous diff
@@ -3328,55 +3441,57 @@ proc update-display {} {
     global w
 
     if {!$g(initOK)} {
-        # disable darn near everything
-        foreach widget [list combo prevDiff firstDiff nextDiff lastDiff \
-                centerDiffs mergeChoice1 mergeChoice2 find mergeChoiceLabel \
-                combo] {
-            $w($widget) configure -state disabled
-        }
-        foreach menu [list $w(popupMenu) $w(viewMenu)] {
-            $menu entryconfigure "Previous*" -state disabled
-            $menu entryconfigure "First*"    -state disabled
-            $menu entryconfigure "Next*"     -state disabled
-            $menu entryconfigure "Last*"     -state disabled
-            $menu entryconfigure "Center*"   -state disabled
-        }
-        $w(popupMenu) entryconfigure "Find*"     -state disabled
-        $w(popupMenu) entryconfigure "Edit*"     -state disabled
+	# disable darn near everything
+	foreach widget [list combo prevDiff firstDiff nextDiff lastDiff \
+		centerDiffs mergeChoice1 mergeChoice2 find mergeChoiceLabel \
+		combo ] {
+	    $w($widget) configure -state disabled
+	}
+	foreach menu [list $w(popupMenu) $w(viewMenu)] {
+	    $menu entryconfigure "Previous*" -state disabled
+	    $menu entryconfigure "First*"    -state disabled
+	    $menu entryconfigure "Next*"     -state disabled
+	    $menu entryconfigure "Last*"     -state disabled
+	    $menu entryconfigure "Center*"   -state disabled
+	}
+	$w(popupMenu) entryconfigure "Find*"     -state disabled
+	$w(popupMenu) entryconfigure "Edit*"     -state disabled
+	$w(popupMenu) entryconfigure "Select*"   -state disabled
 
-        $w(editMenu)  entryconfigure "Find*"     -state disabled
-        $w(editMenu)  entryconfigure "Edit File 1" -state disabled
-        $w(editMenu)  entryconfigure "Edit File 2" -state disabled
+	$w(editMenu)  entryconfigure "Find*"     -state disabled
+	$w(editMenu)  entryconfigure "Edit File 1" -state disabled
+	$w(editMenu)  entryconfigure "Edit File 2" -state disabled
 
-        $w(fileMenu)  entryconfigure "Write*"        -state disabled
-        $w(fileMenu)  entryconfigure "Recompute*"    -state disabled
+	$w(fileMenu)  entryconfigure "Write*"        -state disabled
+	$w(fileMenu)  entryconfigure "Recompute*"    -state disabled
 
-        $w(mergeMenu) entryconfigure "Show*" -state disabled
-        $w(mergeMenu) entryconfigure "Write*" -state disabled
-
+	$w(mergeMenu) entryconfigure "Show*" -state disabled
+	$w(mergeMenu) entryconfigure "Write*" -state disabled
+	
     } else {
-        # these are always enabled, assuming we have properly
-        # diffed a couple of files
+	# these are always enabled, assuming we have properly 
+	# diffed a couple of files
         $w(popupMenu) entryconfigure "Find*"       -state normal
         $w(popupMenu) entryconfigure "Edit*"       -state normal
+	$w(popupMenu) entryconfigure "Select*"     -state normal
 
-        $w(mergeChoice1)     configure -state normal
-        $w(mergeChoice2)     configure -state normal
-        $w(mergeChoiceLabel) configure -state normal
+	$w(mergeChoice1)     configure -state normal
+	$w(mergeChoice2)     configure -state normal
+	$w(mergeChoiceLabel) configure -state normal
 
-        $w(editMenu)  entryconfigure "Find*"       -state normal
-        $w(editMenu)  entryconfigure "Edit File 1" -state normal
-        $w(editMenu)  entryconfigure "Edit File 2" -state normal
+	$w(editMenu)  entryconfigure "Find*"       -state normal
+	$w(editMenu)  entryconfigure "Edit File 1" -state normal
+	$w(editMenu)  entryconfigure "Edit File 2" -state normal
 
-        $w(fileMenu)  entryconfigure "Write*"      -state normal
-        $w(fileMenu)  entryconfigure "Recompute*"    -state normal
+	$w(fileMenu)  entryconfigure "Write*"      -state normal
+	$w(fileMenu)  entryconfigure "Recompute*"    -state normal
 
-        $w(mergeMenu) entryconfigure "Show*" -state normal
-        $w(mergeMenu) entryconfigure "Write*" -state normal
+	$w(mergeMenu) entryconfigure "Show*" -state normal
+	$w(mergeMenu) entryconfigure "Write*" -state normal
 
-        $w(find) configure -state normal
-        $w(combo) configure -state normal
-    }
+	$w(find) configure -state normal
+	$w(combo) configure -state normal
+    }	
 
     # Update the toggles.
     if {$g(count)} {
@@ -3531,7 +3646,7 @@ proc wipe-window {} {
 
         $w(${mod}Info) configure -state normal
         $w(${mod}Info) delete 1.0 end
-        $w(${mod}CB)   configure -state normal
+	$w(${mod}CB)   configure -state normal
         $w(${mod}CB) delete 1.0 end
     }
 
@@ -3560,19 +3675,19 @@ proc mark-diffs {} {
     set g(count) 0
 
 
-    # ain't this clever? We want to update the display as soon as
+    # ain't this clever? We want to update the display as soon as 
     # we've marked enough diffs to fill the display so the user will
     # have the impression we're fast. But, we don't want this
     # want this code to slow us down too much, so we'll put the
     # code in a variable and delete it when its no longer needed.
     set hack {
-        # for now, just pick a number out of thin air. Ideally
-        # we'd compute the number of lines that are visible and
-        # use that, but I'm too lazy today...
-        if {$g(count) > 25} {
-            update idletasks
-            set hack {}
-        }
+	# for now, just pick a number out of thin air. Ideally
+	# we'd compute the number of lines that are visible and
+	# use that, but I'm too lazy today...
+	if {$g(count) > 25} {
+	    update idletasks
+	    set hack {}
+	}
     }
 
     foreach d $g(diff) {
@@ -3589,7 +3704,7 @@ proc mark-diffs {} {
 
             $w(combo) list insert end [format "%-6d: %s" $g(count) $d]
 
-            eval $hack
+	    eval $hack
         }
 
     }
@@ -3605,12 +3720,12 @@ proc do-new-diff {args} {
     global argv argc
 
     if {[llength $args] == 0} {
-        set args [newDiff popup]
-        if {[llength $args] == 0} {
-            return 0
-        }
-        set argv $args
-        set argc [llength $args]
+	set args [newDiff popup]
+	if {[llength $args] == 0} {
+	    return 0
+	}
+	set argv $args
+	set argc [llength $args]
     }
 
     set-cursor
@@ -3622,22 +3737,22 @@ proc do-new-diff {args} {
     set result [catch init-files output]
     check-error $result $output
     if {$result} {
-        # drat! Probably ought to display the newDiff dialog
-        # or something.
-        set ret 0
+	# drat! Probably ought to display the newDiff dialog 
+	# or something.
+	set ret 0
 
     } else {
 
-        # do the diff
-        do-diff
+	# do the diff
+	do-diff
 
-        # Do this to setup the scrollbar sizes, otherwise the
-        # initial events are ignored on Windows
-        hscroll-sync 1 0 1
+	# Do this to setup the scrollbar sizes, otherwise the
+	# initial events are ignored on Windows
+	hscroll-sync 1 0 1
 
-        move first
-
-        set ret 1
+	move first
+	
+	set ret 1
     }
 
     restore-cursor
@@ -3658,8 +3773,8 @@ proc remark-diffs {} {
 
     # delete all known tags.
     foreach window [list $w(LeftText) $w(LeftInfo) $w(LeftCB) \
-            $w(RightText) $w(RightInfo) $w(RightCB)] {
-        eval $window tag delete [$window tag names]
+	    $w(RightText) $w(RightInfo) $w(RightCB)] {
+	eval $window tag delete [$window tag names]
     }
 
     # reconfigure all the tags based on the current options
@@ -3677,9 +3792,9 @@ proc remark-diffs {} {
 
     # next, changebar-specific tags
     foreach widget [list $w(LeftCB) $w(RightCB)] {
-        eval $widget tag configure + $opts(+)
-        eval $widget tag configure - $opts(-)
-        eval $widget tag configure ! $opts(!)
+	eval $widget tag configure + $opts(+)
+	eval $widget tag configure - $opts(-)
+	eval $widget tag configure ! $opts(!)
     }
 
     # now, reapply the tags to all the diff regions
@@ -3689,7 +3804,7 @@ proc remark-diffs {} {
 
     # finally, reset the current diff
     set-tag $g(pos) currtag "" 0
-
+    
 }
 
 
@@ -3841,6 +3956,22 @@ proc check-error {result output} {
     }
 }
 
+
+###############################################################################
+# redo the current diff. Attempt to return to the same diff region,
+# numerically speaking. 
+###############################################################################
+proc recompute-diff {} {
+    global g
+    set current $g(pos)
+
+    do-diff
+    move $current 0
+
+    update-display
+}
+
+
 ###############################################################################
 # Flash the "rediff" button and then kick off a rediff.
 ###############################################################################
@@ -3855,21 +3986,21 @@ proc do-diff {} {
     wipe-window
     update idletasks
     set result [catch {
-        if {$g(mapheight)} {
-            map blank
-        }
-        init-files
-        rediff
-        merge-read-file
-        merge-add-marks
+	if {$g(mapheight)} {
+	    map blank
+	}
+	init-files
+	rediff
+	merge-read-file
+	merge-add-marks
 
-        # If a map exists, recreate it
-        if {$opts(showmap)} {
-            set g(mapheight) -1
-            map-resize
-        }
+	# If a map exists, recreate it
+	if {$opts(showmap)} {
+	    set g(mapheight) -1
+	    map-resize
+	}
     } output]
-
+	
     check-error $result $output
 
     restore-cursor
@@ -3880,9 +4011,10 @@ proc do-diff {} {
 ###############################################################################
 
 proc main {} {
-    global argv
+    global argv 
     global w
     global g errorInfo
+    global startupError
 
     wm withdraw .
     wm protocol . WM_DELETE_WINDOW do-exit
@@ -3902,7 +4034,17 @@ proc main {} {
     eval do-new-diff $argv
 
     wm deiconify .
+    update idletasks
+
+    if {[info exists startupError]} {
+	tk_messageBox \
+		-icon warning \
+		-type ok \
+		-title "$g(name) - Error in Startup File" \
+		-message $startupError
+    }
 }
+
 
 ###############################################################################
 # Erase tmp files (if necessary) and destroy the application.
@@ -3983,11 +4125,11 @@ proc centerWindow {w {size {}}} {
     set parent .
 
     if {[llength $size] > 0} {
-        set wWidth [lindex $size 0]
-        set wHeight [lindex $size 1]
+	set wWidth [lindex $size 0]
+	set wHeight [lindex $size 1]
     } else {
-        set wWidth  [winfo reqwidth $w]
-        set wHeight [winfo reqheight $w]
+	set wWidth  [winfo reqwidth $w]
+	set wHeight [winfo reqheight $w]
     }
 
     set pWidth  [winfo reqwidth $parent]
@@ -4003,7 +4145,7 @@ proc centerWindow {w {size {}}} {
 
     wm geometry $w "=${wWidth}x${wHeight}+${x}+${y}"
     update
-
+    
 }
 
 ###############################################################################
@@ -4016,172 +4158,172 @@ proc newDiff {command args} {
     set w(newDiffPopup) .newDiffPopup
 
     switch $command {
-        "popup" {
-            if {![winfo exists $w(newDiffPopup)]} {
-                newDiff build
-                centerWindow $w(newDiffPopup)
-            }
+	"popup" {
+	    if {![winfo exists $w(newDiffPopup)]} {
+		newDiff build
+		centerWindow $w(newDiffPopup)
+	    }
 
-            wm deiconify $w(newDiffPopup)
-            raise $w(newDiffPopup)
-            tkwait variable g(newDiffArgs)
-            wm withdraw $w(newDiffPopup)
+	    wm deiconify $w(newDiffPopup)
+	    raise $w(newDiffPopup)
+	    tkwait variable g(newDiffArgs)
+	    wm withdraw $w(newDiffPopup)
 
-            # handle result...
-            return $g(newDiffArgs)
-        }
+	    # handle result...
+	    return $g(newDiffArgs)
+	}
 
-        "ok" {
-            # normally we would retrieve the switch value based
-            # on a radio button or option menu or some such on
-            # the dialog, but for now we only support one type of
-            # diff from the dialog...
+	"ok" {
+	    # normally we would retrieve the switch value based 
+	    # on a radio button or option menu or some such on 
+	    # the dialog, but for now we only support one type of
+	    # diff from the dialog...
 
-            # handle the various permutations...
-            switch 1 {
-                1 {
-                    set f1 [file nativename $g(newDiff,simple,original)]
-                    set f2 [file nativename $g(newDiff,simple,revision)]
-                    if {![file exists $f1]} {
-                        tk_messageBox \
-                                -icon warning \
-                                -title "File does not exist" \
-                                -message "The file $f1 does not exist" \
-                                -type ok
-                        return
-                    }
-                    if {![file exists $f2]} {
-                        tk_messageBox \
-                                -icon warning \
-                                -title "File does not exist" \
-                                -message "The file $f2 does not exist" \
-                                -type ok
-                        return
-                    }
-                    # setting this variable will cause popup
-                    # to close the window...
-                    set g(newDiffArgs) [list $f1 $f2]
-                }
-            }
-        }
+	    # handle the various permutations...
+	    switch 1 {
+		1 {
+		    set f1 [file nativename $g(newDiff,simple,original)]
+		    set f2 [file nativename $g(newDiff,simple,revision)]
+		    if {![file exists $f1]} {
+			tk_messageBox \
+				-icon warning \
+				-title "File does not exist" \
+				-message "The file $f1 does not exist" \
+				-type ok
+			return
+		    }
+		    if {![file exists $f2]} {
+			tk_messageBox \
+				-icon warning \
+				-title "File does not exist" \
+				-message "The file $f2 does not exist" \
+				-type ok
+			return
+		    }
+		    # setting this variable will cause popup
+		    # to close the window...
+		    set g(newDiffArgs) [list $f1 $f2]
+		}
+	    }
+	}
 
-        "cancel" {
-            set g(newDiffArgs) {}
-            return
-        }
+	"cancel" {
+	    set g(newDiffArgs) {}
+	    return 
+	}
 
-        "browse" {
-            # n.b.: args(0) is dialog title; args(1) is entry widget
-            set title [lindex $args 0]
-            set widget [lindex $args 1]
-            set filename [tk_getOpenFile -title $title \
-                    -initialfile [$widget get]]
-            if {[string length $filename] > 0} {
-                $widget delete 0 end
-                $widget insert 0 $filename
-                $widget selection range 0 end
-                $widget xview end
-                focus $widget
-                return 1
-            } else {
-                after idle {raise $w(newDiffPopup)}
-                return 0
-            }
-        }
+	"browse" {
+	    # n.b.: args(0) is dialog title; args(1) is entry widget
+	    set title [lindex $args 0]
+	    set widget [lindex $args 1]
+	    set filename [tk_getOpenFile -title $title \
+		    -initialfile [$widget get]]
+	    if {[string length $filename] > 0} {
+		$widget delete 0 end
+		$widget insert 0 $filename
+		$widget selection range 0 end
+		$widget xview end
+		focus $widget
+		return 1
+	    } else {
+		after idle {raise $w(newDiffPopup)}
+		return 0
+	    }
+	}
 
-        "build" {
+	"build" {
+	    
+	    catch {destroy $w(newDiffPopup)}
+	    toplevel $w(newDiffPopup)
 
-            catch {destroy $w(newDiffPopup)}
-            toplevel $w(newDiffPopup)
+	    wm group     $w(newDiffPopup) .
+	    wm transient $w(newDiffPopup) .
+	    wm title     $w(newDiffPopup) "New Diff"
 
-            wm group     $w(newDiffPopup) .
-            wm transient $w(newDiffPopup) .
-            wm title     $w(newDiffPopup) "New Diff"
+	    wm protocol  $w(newDiffPopup) WM_DELETE_WINDOW {newDiff cancel}
 
-            wm protocol  $w(newDiffPopup) WM_DELETE_WINDOW {newDiff cancel}
-
-            wm withdraw  $w(newDiffPopup)
+	    wm withdraw  $w(newDiffPopup)
 
             set x [expr {[winfo rootx .] + 0}]
             set y [expr {[winfo rooty .] + 0}]
 
-            # ultimately it might be nice to support all the
-            # modes even though for now all we'll support is the
-            # two-file mode. But, to make the transition easier
-            # we'll put all of the widgets for this mode in its own
-            # frame which can ultimately be controlled by a notebook
-            # widget
-            set simple [frame $w(newDiffPopup).simple -borderwidth 2 -relief groove]
-            label $simple.l1 -text "Original File:"
-            label $simple.l2 -text "Revised File:"
+	    # ultimately it might be nice to support all the 
+	    # modes even though for now all we'll support is the 
+	    # two-file mode. But, to make the transition easier 
+	    # we'll put all of the widgets for this mode in its own 
+	    # frame which can ultimately be controlled by a notebook
+	    # widget
+	    set simple [frame $w(newDiffPopup).simple -borderwidth 2 -relief groove]
+	    label $simple.l1 -text "Original File:"
+	    label $simple.l2 -text "Revised File:"
 
-            entry $simple.e1 -textvariable g(newDiff,simple,original)
-            entry $simple.e2 -textvariable g(newDiff,simple,revision)
+	    entry $simple.e1 -textvariable g(newDiff,simple,original)
+	    entry $simple.e2 -textvariable g(newDiff,simple,revision)
 
-            set g(newDiff,simple,original) $finfo(pth,1)
-            set g(newDiff,simple,revision) $finfo(pth,2)
+	    set g(newDiff,simple,original) $finfo(pth,1)
+	    set g(newDiff,simple,revision) $finfo(pth,2)
 
-            # we want these buttons to be the same height as
-            # the entry, so we'll try to force the issue...
-            button $simple.b1 \
-                    -borderwidth 1 \
-                    -highlightthickness 0 \
-                    -text "Browse..." \
-                    -command [list newDiff browse "Original File" $simple.e1]
-            button $simple.b2 \
-                    -borderwidth 1 \
-                    -highlightthickness 0 \
-                    -text "Browse..." \
-                    -command [list newDiff browse "Revised File" $simple.e2]
+	    # we want these buttons to be the same height as 
+	    # the entry, so we'll try to force the issue...
+	    button $simple.b1 \
+		    -borderwidth 1 \
+		    -highlightthickness 0 \
+		    -text "Browse..." \
+		    -command [list newDiff browse "Original File" $simple.e1]
+	    button $simple.b2 \
+		    -borderwidth 1 \
+		    -highlightthickness 0 \
+		    -text "Browse..." \
+		    -command [list newDiff browse "Revised File" $simple.e2] 
+	    
+	    # we'll use the grid geometry manager to get things lined up right...
+	    grid $simple.l1 -row 0 -column 0 -sticky e
+	    grid $simple.e1 -row 0 -column 1 -sticky nsew
+	    grid $simple.b1 -row 0 -column 2 -sticky nsew -pad 4
 
-            # we'll use the grid geometry manager to get things lined up right...
-            grid $simple.l1 -row 0 -column 0 -sticky e
-            grid $simple.e1 -row 0 -column 1 -sticky nsew
-            grid $simple.b1 -row 0 -column 2 -sticky nsew -pad 4
+	    grid $simple.l2 -row 1 -column 0 -sticky e
+	    grid $simple.e2 -row 1 -column 1 -sticky nsew
+	    grid $simple.b2 -row 1 -column 2 -sticky nsew -pad 4
 
-            grid $simple.l2 -row 1 -column 0 -sticky e
-            grid $simple.e2 -row 1 -column 1 -sticky nsew
-            grid $simple.b2 -row 1 -column 2 -sticky nsew -pad 4
+	    grid columnconfigure $simple 0 -weight 0
+	    grid columnconfigure $simple 1 -weight 1
+	    grid columnconfigure $simple 2 -weight 0
+	    
+	    # here are the buttons for this dialog...
+	    set commands [frame $w(newDiffPopup).buttons]
+	    button $commands.ok \
+		    -text "Ok" \
+		    -width 5 \
+		    -command [list newDiff ok] \
+		    -default active
+	    button $commands.cancel \
+		    -text "Cancel" \
+		    -width 5 \
+		    -command [list newDiff cancel] \
+		    -default normal
 
-            grid columnconfigure $simple 0 -weight 0
-            grid columnconfigure $simple 1 -weight 1
-            grid columnconfigure $simple 2 -weight 0
+	    pack $commands.ok $commands.cancel \
+		    -side left \
+		    -fill none \
+		    -expand y \
+		    -pady 4
 
-            # here are the buttons for this dialog...
-            set commands [frame $w(newDiffPopup).buttons]
-            button $commands.ok \
-                    -text "Ok" \
-                    -width 5 \
-                    -command [list newDiff ok] \
-                    -default active
-            button $commands.cancel \
-                    -text "Cancel" \
-                    -width 5 \
-                    -command [list newDiff cancel] \
-                    -default normal
+	    catch {$commands.ok -default 1}
 
-            pack $commands.ok $commands.cancel \
-                    -side left \
-                    -fill none \
-                    -expand y \
-                    -pady 4
+	    # pack this crud in...
+	    pack $simple \
+		    -side top \
+		    -fill both \
+		    -expand y \
+		    -ipady 20 \
+		    -ipadx 20 \
+		    -padx 5 \
+		    -pady 5
+	    pack $commands -side bottom -fill x -expand n
 
-            catch {$commands.ok -default 1}
-
-            # pack this crud in...
-            pack $simple \
-                    -side top \
-                    -fill both \
-                    -expand y \
-                    -ipady 20 \
-                    -ipadx 20 \
-                    -padx 5 \
-                    -pady 5
-            pack $commands -side bottom -fill x -expand n
-
-            bind $w(newDiffPopup) <Return> [list $commands.ok invoke]
-            bind $w(newDiffPopup) <Escape> [list $commands.cancel invoke]
-        }
+	    bind $w(newDiffPopup) <Return> [list $commands.ok invoke]
+	    bind $w(newDiffPopup) <Escape> [list $commands.cancel invoke]
+	}
 
     }
 
@@ -4207,7 +4349,7 @@ proc write-report {command args} {
             set report(filename) [file join [pwd] $report(filename)]
             write-report update
 
-            centerWindow $w(reportPopup)
+	    centerWindow $w(reportPopup)
             wm deiconify $w(reportPopup)
             raise $w(reportPopup)
         }
@@ -4304,11 +4446,9 @@ proc write-report {command args} {
 
                 } elseif {$report(doSideRight) == 1} {
                     set output $out(Right)
-                    puts "set output $out(Right)"
 
                 } elseif {$report(doSideLeft) == 1} {
                     set output $out(Left)
-                    puts "set output $out(Left)"
 
                 } else {
                     # what a wasted effort!
@@ -4344,7 +4484,7 @@ proc write-report {command args} {
             wm title $w(reportPopup) "$g(name) - Generate Report"
             wm protocol $w(reportPopup) WM_DELETE_WINDOW \
                     [list write-report cancel]
-            wm withdraw $w(reportPopup)
+	    wm withdraw $w(reportPopup)
 
             set cf [frame $w(reportPopup).clientFrame -bd 2 -relief groove]
             set bf [frame $w(reportPopup).buttonFrame -bd 0]
@@ -4496,7 +4636,7 @@ $g(name) detects and supports RCS, CVS and SCCS by looking for a directory with 
 
 In the first form, tkdiff will present a dialog to allow you to choose the files to diff interactively. At present this dialog only supports a diff between two files that already exist. There is no way to do a diff against a file under souce code control (unless the previous versions can be found on disk via a standard file selection dialog).
 
-In the second form, at least one of the arguments must be the name of a plain text file.  Symbolic links are acceptable, but at least one of the filename arguments must point to a real file rather than to a directory.
+In the second form, at least one of the arguments must be the name of a plain text file.  Symbolic links are acceptable, but at least one of the filename arguments must point to a real file rather than to a directory.  
 
 In the remaining forms, <cmp>REV</cmp> (or <cmp>REV1</cmp> and <cmp>REV2</cmp>) must be a valid revision number for <cmp>FILE</cmp>.  Where RCS, CVS, SCCS, PVCS or Perforce is implied but no revision number is specified, <cmp>FILE</cmp> is compared with the the revision most recently checked in.
 
@@ -4530,7 +4670,7 @@ All difference regions (DRs) are highlighted to set them apart from the surround
 
 <hdr>Changing the CDR</hdr>
 
-The CDR can be changed in a sequential manner by means of the <btn>Next</btn> and <btn>Previous</btn> buttons. The <btn>First</btn> and <btn>Last</btn> buttons allow you to quickly navigate to the first or last CDR, respectively. For random access to the DRs, use the dropdown listbox in the toolbar or the diff map, described below.
+The CDR can be changed in a sequential manner by means of the <btn>Next</btn> and <btn>Previous</btn> buttons. The <btn>First</btn> and <btn>Last</btn> buttons allow you to quickly navigate to the first or last CDR, respectively. For random access to the DRs, use the dropdown listbox in the toolbar or the diff map, described below. 
 
 You may also select any highlighted diff region as the current diff region by double-clicking on it.
 
@@ -4583,8 +4723,6 @@ To scroll the text widgets independently, make sure <btn>Synchronize Scrollbars<
 
 The diff map is a map of all the diff regions. It is shown in the middle of the main window if "Diff Map" on the View menu is on. The map is a miniature of the file's diff regions from top to bottom. Each diff region is rendered as a patch of color, Delete as red, Insert as green and Change as blue. The height of each patch corresponds to the relative size of the diff region. A thumb lets you interact with the map as if it were a scrollbar.
 
-Clicking on the map takes you to the corresponding position in the file. The diff region nearest to the center of the screen is automatically selected. If you do not wish to change the CDR, use the right scrollbar and drag the slider until it is next to the diff region on the map instead.
-
 All diff regions are drawn on the map even if too small to be visible. For large files with small diff regions, this may result in patches overwriting each other.
 
 <hdr>Merging</hdr>
@@ -4628,7 +4766,7 @@ proc do-help-preferences {} {
     set text {
 <hdr>Overview</hdr>
 
-Preferences are stored in a file in your home directory (identified by the environment variable <cmp>HOME</cmp>. If you are on a Windows platform the file will be named <cmp>_tkdiff.rc</cmp> and will have the attribute "hidden". For all other platforms the file will be named ".tkdiffrc".
+Preferences are stored in a file in your home directory (identified by the environment variable <cmp>HOME</cmp>. If the environment variable <cmp>HOME</cmp> is not set the platform-specific variant of "/" will be used. If you are on a Windows platform the file will be named <cmp>_tkdiff.rc</cmp> and will have the attribute "hidden". For all other platforms the file will be named ".tkdiffrc". You may override the name and location of this file  by setting the environment variable <cmp>TKDIFFRC</cmp> to whatever filename you wish.
 
 Preferences are organized into three categories: General, Display and Appearance.
 
@@ -4648,50 +4786,16 @@ The name of a directory for files that are temporarily created while $g(name) is
 
 The name of an external editor program to use when editing a file (ie: when you select "Edit" from the popup menu). If this value is blank, a simple editor built in to $g(name) will be used. For windows users you might want to set this to "notepad". Unix users may want to set this to "xterm -e vi" or perhaps "gnuclient". When run, the name of the file to edit will be appened as the last argument on the command line.
 
+<bld>$pref(geometry)</bld>
 
-<hdr>Display</hdr>
-
-<bld>$pref(showln)</bld>
-
-If set, line numbers will be displayed alongside each line of each file.
-
-If not set, no line numbers will appear.
-
-<bld>$pref(tagln)</bld>
-
-If set, line numbers are highlighted with the options defined in the Appearance section of the preferences.
-
-If not set, line numbers won't be highlighted.
-
-<bld>$pref(showcbs)</bld>
-
-If set, change bars will be displayed alongside each line of each file.
-
-If not set, no change bars will appear.
+This defines the default size, in characters of the two text windows. The format should be <cmp>WIDTHxHEIGHT</cmp>. For example, "80x40".
 
 
-<bld>$pref(tagcbs)</bld>
+<bld>$pref(fancyButtons)</bld>
 
-If set, change indicators will be highlighted. If <itl>$pref(colorcbs)</itl> is set they will appear as solid colored bars that match the colors used in the diff map. If <itl>$pref(colorcbs)</itl> is not set, the change indicators will be highlighted according to the options defined in the Appearance section of preferences.
+If set, toolbar buttons will mimic the visual behavior of typical Microsoft Windows applications. Buttons will initially be flat until the cursor moves over them, at which time they will be raised.
 
-<bld>$pref(showmap)</bld>
-
-If set, colorized, graphical "diff map" will be displayed between the two files, showing regions that have changed. Red is used to show deleted lines, green for added lines, and blue for changed lines.
-
-If not set, the diff map will not be shown.
-
-
-<bld>$pref(tagtext)</bld>
-If set, the file contents will be highlighted with the options defined in the Appearance section of the preferences.
-
-If not set, the file contents won't be highlighted.
-
-
-<bld>$pref(colorcbs)</bld>
-
-If set, the change bars will display as solid bars of color that match the colors used by the diff map.
-
-If not set, the change bars will display a "+" for lines that exist in only one file, a "-" for lines that are missing from only one file, and "!" for lines that are different between the two files.
+If unset, toolbar buttons will always appear raised.
 
 
 <bld>$pref(autocenter)</bld>
@@ -4708,16 +4812,54 @@ If set, scrolling either text window will result in both windows scrolling.
 If not set, the windows will scroll independent of each other.
 
 
-<bld>$pref(fancyButtons)</bld>
+<hdr>Display</hdr>
 
-If set, toolbar buttons will mimic the visual behavior of typical Microsoft Windows applications. Buttons will initially be flat until the cursor moves over them, at which time they will be raised.
+<bld>$pref(showln)</bld>
 
-If unset, toolbar buttons will always appear raised.
+If set, line numbers will be displayed alongside each line of each file.
+
+If not set, no line numbers will appear.
 
 
-<bld>$pref(geometry)</bld>
+<bld>$pref(tagln)</bld>
 
-This defines the default size, in characters of the two text windows. The format should be <cmp>WIDTHxHEIGHT</cmp>. For example, "80x40".
+If set, line numbers are highlighted with the options defined in the Appearance section of the preferences.
+
+If not set, line numbers won't be highlighted.
+
+
+<bld>$pref(showcbs)</bld>
+
+If set, change bars will be displayed alongside each line of each file.
+
+If not set, no change bars will appear.
+
+
+<bld>$pref(tagcbs)</bld>
+
+If set, change indicators will be highlighted. If <itl>$pref(colorcbs)</itl> is set they will appear as solid colored bars that match the colors used in the diff map. If <itl>$pref(colorcbs)</itl> is not set, the change indicators will be highlighted according to the options defined in the Appearance section of preferences.
+
+
+<bld>$pref(showmap)</bld>
+
+If set, colorized, graphical "diff map" will be displayed between the two files, showing regions that have changed. Red is used to show deleted lines, green for added lines, and blue for changed lines.
+
+If not set, the diff map will not be shown.
+
+
+<bld>$pref(tagtext)</bld>
+
+If set, the file contents will be highlighted with the options defined in the Appearance section of the preferences.
+
+If not set, the file contents won't be highlighted.
+
+
+<bld>$pref(colorcbs)</bld>
+
+If set, the change bars will display as solid bars of color that match the colors used by the diff map.
+
+If not set, the change bars will display a "+" for lines that exist in only one file, a "-" for lines that are missing from only one file, and "!" for lines that are different between the two files.
+
 
 
 <hdr>Appearance</hdr>
@@ -4733,6 +4875,7 @@ This is a list of Tk text widget tag options that are applied to all diff region
 
 
 <bld>$pref(deltag)</bld>
+
 This is a list of Tk text widget tag options that are applied to the current diff region. These options have a higher priority than those for all diff regions. So, for example, if you set the forground for all diff regions to be black and set the foreground for the current diff region to be blue, the current diff region foreground color will be used.
 
 
@@ -4749,6 +4892,7 @@ This is a list of Tk text widget tag options that are applied to regions that ha
 <bld>$pref(currtag)</bld>
 
 This is a list of Tk text widget tag options that are applied to the current diff region. These tags have a higher priority than those for all diff regions, and a higher priority than the change, inserted and deleted diff regions.
+
 
 
     }
@@ -4888,12 +5032,12 @@ proc do-edit {} {
     global finfo
     global w
 
-    if {$g(findWin) == $w(LeftText)} {
+    if {$g(activeWindow) == $w(LeftText)} {
         set fileno 1
-    } elseif {$g(findWin) == $w(RightText)} {
+    } elseif {$g(activeWindow) == $w(RightText)} {
         set fileno 2
     } else {
-        set fileno 1
+	set fileno 1
     }
 
     if {$finfo(tmp,$fileno)} {
@@ -5012,11 +5156,11 @@ proc simpleEd {command args} {
 #
 # combobox v1.07 October 9, 1998
 #
-# a combobox / dropdown listbox (pick your favorite name) widget
+# a combobox / dropdown listbox (pick your favorite name) widget 
 # written in pure tcl
 #
-# this code is freely distributable without restriction, but is
-# provided as-is with no waranty expressed or implied.
+# this code is freely distributable without restriction, but is 
+# provided as-is with no waranty expressed or implied. 
 #
 # thanks to the following people who provided beta test support or
 # patches to the code (in no particular order):
@@ -5026,9 +5170,9 @@ proc simpleEd {command args} {
 # Fred Rapp         Christopher Nelson
 # Eric Galluzzo     Jean-Francois Moine
 
-# A special thanks to Martin M. Hunt who provided several good ideas,
-# and always with a patch to implement them. Jean-Francois Moine,
-# Todd Helfter and John Jackson were also kind enough to send in some
+# A special thanks to Martin M. Hunt who provided several good ideas, 
+# and always with a patch to implement them. Jean-Francois Moine, 
+# Todd Helfter and John Jackson were also kind enough to send in some 
 # code patches.
 
 package require Tk 8.0
@@ -5045,11 +5189,11 @@ namespace eval ::combobox {
     # bar.
     #
     # NB: we need to be sure and pick a window  that doesn't already
-    # exist...
+    # exist... 
     set sbtest ".sbtest"
     set count 0
     while {[winfo exists $sbtest]} {
-        set sbtest ".sbtest$count"
+	set sbtest ".sbtest$count"
     }
     scrollbar $sbtest
     set sb_width [winfo reqwidth $sbtest]
@@ -5057,18 +5201,18 @@ namespace eval ::combobox {
 
     # the image used for the button...
     image create bitmap ::combobox::bimage -data  {
-        #define down_arrow_width 15
-        #define down_arrow_height 15
-        static char down_arrow_bits[] = {
-            0x00,0x80,0x00,0x80,0x00,0x80,0x00,0x80,
-            0x00,0x80,0xf8,0x8f,0xf0,0x87,0xe0,0x83,
-            0xc0,0x81,0x80,0x80,0x00,0x80,0x00,0x80,
-            0x00,0x80,0x00,0x80,0x00,0x80
-        }
+	#define down_arrow_width 15
+	#define down_arrow_height 15
+	static char down_arrow_bits[] = {
+	    0x00,0x80,0x00,0x80,0x00,0x80,0x00,0x80,
+	    0x00,0x80,0xf8,0x8f,0xf0,0x87,0xe0,0x83,
+	    0xc0,0x81,0x80,0x80,0x00,0x80,0x00,0x80,
+	    0x00,0x80,0x00,0x80,0x00,0x80
+	}
     }
 }
 
-# this is the command that gets exported, and creates a new
+# this is the command that gets exported, and creates a new 
 # combobox widget. It works like other widget commands in that
 # it takes as its first argument a widget path, and any remaining
 # arguments are option/value pairs for the widget
@@ -5088,20 +5232,20 @@ proc ::combobox::combobox {w args} {
 # builds the combobox...
 proc ::combobox::build {w args } {
     if {[winfo exists $w]} {
-        error "window name \"$w\" already exists"
+	error "window name \"$w\" already exists"
     }
 
     # create the namespace for this instance, and define a few
     # variables
     namespace eval ::combobox::$w {
 
-        variable ignoreTrace 0
-        variable oldFocus    {}
-        variable oldGrab     {}
-        variable oldValue    {}
-        variable options
-        variable this
-        variable widgets
+	variable ignoreTrace 0
+	variable oldFocus    {}
+	variable oldGrab     {}
+	variable oldValue    {}
+	variable options
+	variable this
+	variable widgets
 
     }
 
@@ -5114,29 +5258,29 @@ proc ::combobox::build {w args } {
     # we need these to be defined, regardless if the user defined
     # them for us or not...
     array set options [list \
-            -height       0 \
-            -maxheight    10 \
-            -command      {} \
-            -image        {} \
-            -textvariable {} \
-            -editable     1 \
-            -commandstate normal \
-            -state          normal \
-            -xscrollcommand {} \
+	    -height       0 \
+	    -maxheight    10 \
+	    -command      {} \
+	    -image        {} \
+	    -textvariable {} \
+	    -editable     1 \
+	    -commandstate normal \
+	    -state          normal \
+	    -xscrollcommand {} \
     ]
 
     # this lets us reference the actual widget name from within
-    # the namespace of the widget.
+    # the namespace of the widget. 
     namespace eval ::combobox::$w "set this $w"
 
     # the basic, always-visible parts of the combobox. We do these
     # here, because we want to query some of them for their default
     # values, which we want to juggle to other widgets. I suppose
-    # I could use the options database, but for simplicity I choose
+    # I could use the options database, but for simplicity I choose 
     # not to...
     set widgets(this)   [frame  $w -class Combobox -takefocus 0]
     set widgets(entry)  [entry  $w.entry -takefocus 1]
-    set widgets(button) [label  $w.button -takefocus 0]
+    set widgets(button) [label  $w.button -takefocus 0] 
 
     # we will later rename the frame's widget proc to be our
     # own custom widget proc. We need to keep track of this
@@ -5150,10 +5294,10 @@ proc ::combobox::build {w args } {
     # now, steal some attributes from the entry widget and store
     # them in our own options array
     foreach option [list -background -foreground -relief \
-            -borderwidth -highlightthickness -highlightbackground \
-            -font -width -selectbackground -selectborderwidth \
-            -selectforeground -takefocus] {
-        set options($option) [$widgets(entry) cget $option]
+	    -borderwidth -highlightthickness -highlightbackground \
+	    -font -width -selectbackground -selectborderwidth \
+	    -selectforeground -takefocus] {
+	set options($option) [$widgets(entry) cget $option] 
     }
 
     # I should probably do this in a catch, but for now it's
@@ -5174,47 +5318,47 @@ proc ::combobox::build {w args } {
     # arbitrary values...)
 
     # NB: we are going to use the frame to handle the relief
-    # of the widget as a whole, so the entry widget will be
+    # of the widget as a whole, so the entry widget will be 
     # flat. This makes the button which drops down the list
     # to appear "inside" the entry widget.
 
     $widgets(vsb) configure \
-            -command "$widgets(listbox) yview" \
-            -highlightthickness 0
+	    -command "$widgets(listbox) yview" \
+	    -highlightthickness 0
 
     $widgets(button) configure \
-            -highlightthickness 0 \
-            -borderwidth 1 \
-            -relief raised \
-            -width [expr {[winfo reqwidth $widgets(vsb)] - 2}]
+	    -highlightthickness 0 \
+	    -borderwidth 1 \
+	    -relief raised \
+	    -width [expr {[winfo reqwidth $widgets(vsb)] - 2}]
 
     $widgets(entry) configure \
-            -borderwidth 0 \
-            -relief flat \
-            -textvariable ::combobox::${w}::entryTextVariable \
-            -highlightthickness 0
+	    -borderwidth 0 \
+	    -relief flat \
+	    -textvariable ::combobox::${w}::entryTextVariable \
+	    -highlightthickness 0 
 
     $widgets(popup) configure \
-            -borderwidth 1 \
-            -relief sunken
+	    -borderwidth 1 \
+	    -relief sunken
 
     $widgets(listbox) configure \
-            -selectmode browse \
-            -background [$widgets(entry) cget -bg] \
-            -yscrollcommand "$widgets(vsb) set" \
-            -borderwidth 0
+	    -selectmode browse \
+	    -background [$widgets(entry) cget -bg] \
+	    -yscrollcommand "$widgets(vsb) set" \
+	    -borderwidth 0
 
 
     trace variable ::combobox::${w}::entryTextVariable w \
-            [list ::combobox::entryTrace $w]
-
+	    [list ::combobox::entryTrace $w]
+	
     # do some window management foo on the dropdown window
     wm overrideredirect $widgets(popup) 1
     wm transient        $widgets(popup) [winfo toplevel $w]
     wm group            $widgets(popup) [winfo parent $w]
     wm resizable        $widgets(popup) 0 0
     wm withdraw         $widgets(popup)
-
+    
     # this moves the original frame widget proc into our
     # namespace and gives it a handy name
     rename ::$w $widgets(frame)
@@ -5222,118 +5366,118 @@ proc ::combobox::build {w args } {
     # now, create our widget proc. Obviously (?) it goes in
     # the global namespace. All combobox widgets will actually
     # share the same widget proc to cut down on the amount of
-    # bloat.
+    # bloat. 
     proc ::$w {command args} \
-            "eval ::combobox::widgetProc $w \$command \$args"
+	    "eval ::combobox::widgetProc $w \$command \$args"
 
-    # ok, the thing exists... let's do a bit more configuration.
+    # ok, the thing exists... let's do a bit more configuration. 
     foreach opt [array names options] {
-        ::combobox::configure $widgets(this) set $opt $options($opt)
+	::combobox::configure $widgets(this) set $opt $options($opt)
     }
 
 
 }
 
 # this is called whenever the contents of the entry widget changes;
-# it's main purpose is to update the public textvariable, if
+# it's main purpose is to update the public textvariable, if 
 # any
 proc ::combobox::entryTrace {w args} {
     upvar ::combobox::${w}::options options
     upvar ::combobox::${w}::ignoreTrace ignoreTrace
 
     if {[string length $options(-textvariable)]} {
-        set ignoreTrace 1
-        uplevel \#0 [list set $options(-textvariable) \
-                [set ::combobox::${w}::entryTextVariable]]
-        unset ignoreTrace
+	set ignoreTrace 1
+	uplevel \#0 [list set $options(-textvariable) \
+		[set ::combobox::${w}::entryTextVariable]]
+	unset ignoreTrace
     }
 }
 
 # here's where we do most of the binding foo. I think there's probably
 # a few bindings I ought to add that I just haven't thought about...
 #
-# I'm not convinced these are the proper bindings. Ideally all bindings
-# should be on "Combobox", but because of my juggling of bindtags I'm
+# I'm not convinced these are the proper bindings. Ideally all bindings 
+# should be on "Combobox", but because of my juggling of bindtags I'm 
 # not convinced thats what I want to do. But, it all seems to work, its
 # just not as robust as it could be.
 proc ::combobox::setBindings {w} {
     namespace eval ::combobox::$w {
-        variable widgets
-        variable options
+	variable widgets
+	variable options
 
-        # juggle the bindtags. The basic idea here is to associate the
-        # widget name with the entry widget, so if a user does a bind
-        # on the combobox it will get handled properly since it is
-        # the entry widget that has keyboard focus.
-        bindtags $widgets(entry) \
-                [concat $widgets(this) [bindtags $widgets(entry)]]
+	# juggle the bindtags. The basic idea here is to associate the
+	# widget name with the entry widget, so if a user does a bind
+	# on the combobox it will get handled properly since it is 
+	# the entry widget that has keyboard focus.
+	bindtags $widgets(entry) \
+		[concat $widgets(this) [bindtags $widgets(entry)]]
 
-        bindtags $widgets(button) \
-                [concat $widgets(this) [bindtags $widgets(button)]]
+	bindtags $widgets(button) \
+		[concat $widgets(this) [bindtags $widgets(button)]]
 
-        # make sure we clean up after ourselves...
-        bind $widgets(entry) <Destroy> [list ::combobox::destroyHandler $this]
+	# make sure we clean up after ourselves...
+	bind $widgets(entry) <Destroy> [list ::combobox::destroyHandler $this]
 
-        # this closes the listbox if we get hidden
-        bind $widgets(this) <Unmap> "$widgets(this) close"
+	# this closes the listbox if we get hidden
+	bind $widgets(this) <Unmap> "$widgets(this) close"
 
-        # this helps (but doesn't fully solve) focus issues. The general
-        # idea is, whenever the frame gets focus it gets passed on to
-        # the entry widget
-        bind $widgets(this) <FocusIn> \
-                "tkTabToWindow $widgets(entry)"
+	# this helps (but doesn't fully solve) focus issues. The general
+	# idea is, whenever the frame gets focus it gets passed on to
+	# the entry widget
+	bind $widgets(this) <FocusIn> \
+		"tkTabToWindow $widgets(entry)"
+		
+	# override the default bindings for tab and shift-tab. The
+	# focus procs take a widget as their only parameter and we
+	# want to make sure the right window gets used (for shift-
+	# tab we want it to appear as if the event was generated 
+	# on the frame rather than the entry. I
+	
+	bind $widgets(entry) <Tab> \
+		"tkTabToWindow \[tk_focusNext $widgets(entry)\]; break"
+	bind $widgets(entry) <Shift-Tab> \
+		"tkTabToWindow \[tk_focusPrev $widgets(this)\]; break"
 
-        # override the default bindings for tab and shift-tab. The
-        # focus procs take a widget as their only parameter and we
-        # want to make sure the right window gets used (for shift-
-        # tab we want it to appear as if the event was generated
-        # on the frame rather than the entry. I
+	# this makes our "button" (which is actually a label) 
+	# do the right thing
+	bind $widgets(button) <ButtonPress-1> [list $widgets(this) toggle]
 
-        bind $widgets(entry) <Tab> \
-                "tkTabToWindow \[tk_focusNext $widgets(entry)\]; break"
-        bind $widgets(entry) <Shift-Tab> \
-                "tkTabToWindow \[tk_focusPrev $widgets(this)\]; break"
+	# this lets the autoscan of the listbox work, even if they
+	# move the cursor over the entry widget. 
+	bind $widgets(entry) <B1-Enter> "break"
 
-        # this makes our "button" (which is actually a label)
-        # do the right thing
-        bind $widgets(button) <ButtonPress-1> [list $widgets(this) toggle]
+	# this will (hopefully) close (and lose the grab on) the
+	# listbox if the user clicks anywhere outside of it. Note
+	# that on Windows, you can click on some other app and 
+	# the listbox will still be there, because tcl won't see
+	# that button click
+	bind Combobox <Any-ButtonPress>  [list $widgets(this) close]
+	bind Combobox <Any-ButtonRelease> [list $widgets(this) close]
 
-        # this lets the autoscan of the listbox work, even if they
-        # move the cursor over the entry widget.
-        bind $widgets(entry) <B1-Enter> "break"
+	bind $widgets(listbox) <ButtonRelease-1> \
+		"::combobox::select $widgets(this) \[$widgets(listbox) nearest %y\]; break"
 
-        # this will (hopefully) close (and lose the grab on) the
-        # listbox if the user clicks anywhere outside of it. Note
-        # that on Windows, you can click on some other app and
-        # the listbox will still be there, because tcl won't see
-        # that button click
-        bind Combobox <Any-ButtonPress>  [list $widgets(this) close]
-        bind Combobox <Any-ButtonRelease> [list $widgets(this) close]
+	bind $widgets(vsb) <ButtonPress-1> {continue}
+	bind $widgets(vsb) <ButtonRelease-1> {continue}
 
-        bind $widgets(listbox) <ButtonRelease-1> \
-                "::combobox::select $widgets(this) \[$widgets(listbox) nearest %y\]; break"
+	bind $widgets(listbox) <Any-Motion> {
+	    %W selection clear 0 end
+	    %W activate @%x,%y
+	    %W selection anchor @%x,%y
+	    %W selection set @%x,%y @%x,%y
+	    # need to do a yview if the cursor goes off the top
+	    # or bottom of the window... (or do we?)
+	}
 
-        bind $widgets(vsb) <ButtonPress-1> {continue}
-        bind $widgets(vsb) <ButtonRelease-1> {continue}
-
-        bind $widgets(listbox) <Any-Motion> {
-            %W selection clear 0 end
-            %W activate @%x,%y
-            %W selection anchor @%x,%y
-            %W selection set @%x,%y @%x,%y
-            # need to do a yview if the cursor goes off the top
-            # or bottom of the window... (or do we?)
-        }
-
-        # these events need to be passed from the entry
-        # widget to the listbox, or need some sort of special
-        # handling....
-        foreach event [list <Up> <Down> <Tab> <Return> <Escape> \
-                <Next> <Prior> <Double-1> <1> <Any-KeyPress> \
-                <FocusIn> <FocusOut>] {
-            bind $widgets(entry) $event \
-                    "::combobox::handleEvent $widgets(this) $event"
-        }
+	# these events need to be passed from the entry
+	# widget to the listbox, or need some sort of special
+	# handling....
+	foreach event [list <Up> <Down> <Tab> <Return> <Escape> \
+		<Next> <Prior> <Double-1> <1> <Any-KeyPress> \
+		<FocusIn> <FocusOut>] {
+	    bind $widgets(entry) $event \
+		    "::combobox::handleEvent $widgets(this) $event"
+	}
 
     }
 }
@@ -5347,188 +5491,188 @@ proc ::combobox::handleEvent {w event} {
     upvar ::combobox::${w}::oldValue oldValue
 
     # for all of these events, if we have a special action we'll
-    # do that and do a "return -code break" to keep additional
+    # do that and do a "return -code break" to keep additional 
     # bindings from firing. Otherwise we'll let the event fall
-    # on through.
+    # on through. 
     switch $event {
 
-        "<Any-KeyPress>" {
-            # if the widget is editable, clear the selection.
-            # this makes it more obvious what will happen if the
-            # user presses <Return> (and helps our code know what
-            # to do if the user presses return)
-            if {$options(-editable)} {
-                $widgets(listbox) see 0
-                $widgets(listbox) selection clear 0 end
-                $widgets(listbox) selection anchor 0
-                $widgets(listbox) activate 0
-            }
-        }
+	"<Any-KeyPress>" {
+	    # if the widget is editable, clear the selection. 
+	    # this makes it more obvious what will happen if the 
+	    # user presses <Return> (and helps our code know what
+	    # to do if the user presses return)
+	    if {$options(-editable)} {
+		$widgets(listbox) see 0
+		$widgets(listbox) selection clear 0 end
+		$widgets(listbox) selection anchor 0
+		$widgets(listbox) activate 0
+	    }
+	}
 
-        "<FocusIn>" {
-            set oldValue [$widgets(entry) get]
-        }
+	"<FocusIn>" {
+	    set oldValue [$widgets(entry) get]
+	}
 
-        "<FocusOut>" {
-            if {[winfo ismapped $widgets(popup)]} {
-                return -code break
+	"<FocusOut>" {
+	    if {[winfo ismapped $widgets(popup)]} {
+		return -code break
 
-            } else {
-                # did the value change?
-                set newValue [set ::combobox::${w}::entryTextVariable]
-                if {$oldValue != $newValue} {
-                    callCommand $widgets(this) $newValue
-                }
-            }
-        }
+	    } else {
+		# did the value change?
+		set newValue [set ::combobox::${w}::entryTextVariable]
+		if {$oldValue != $newValue} {
+		    callCommand $widgets(this) $newValue
+		}
+	    }
+	}
 
-        "<1>" {
-            set editable [::combobox::getBoolean $options(-editable)]
-            if {!$editable} {
-                if {[winfo ismapped $widgets(popup)]} {
-                    $widgets(this) close
-                    return -code break;
+	"<1>" {
+	    set editable [::combobox::getBoolean $options(-editable)]
+	    if {!$editable} {
+		if {[winfo ismapped $widgets(popup)]} {
+		    $widgets(this) close
+		    return -code break;
 
-                } else {
-                    if {$options(-state) != "disabled"} {
-                        $widgets(this) open
-                        return -code break;
-                    }
-                }
-            }
-        }
+		} else {
+		    if {$options(-state) != "disabled"} {
+			$widgets(this) open
+			return -code break;
+		    }
+		}
+	    }
+	}
 
-        "<Double-1>" {
-            if {$options(-state) != "disabled"} {
-                $widgets(this) toggle
-                return -code break;
-            }
-        }
+	"<Double-1>" {
+	    if {$options(-state) != "disabled"} {
+		$widgets(this) toggle
+		return -code break;
+	    }
+	}
 
-        "<Tab>" {
-            if {[winfo ismapped $widgets(popup)]} {
-                ::combobox::find $widgets(this)
-                return -code break;
-            } else {
-                ::combobox::setValue $widgets(this) [$widgets(this) get]
-            }
-        }
+	"<Tab>" {
+	    if {[winfo ismapped $widgets(popup)]} {
+		::combobox::find $widgets(this)
+		return -code break;
+	    } else {
+		::combobox::setValue $widgets(this) [$widgets(this) get]
+	    }
+	}
 
-        "<Escape>" {
-            $widgets(entry) delete 0 end
-            $widgets(entry) insert 0 $oldValue
-            if {[winfo ismapped $widgets(popup)]} {
-                $widgets(this) close
-                return -code break;
-            }
-        }
+	"<Escape>" {
+	    $widgets(entry) delete 0 end
+	    $widgets(entry) insert 0 $oldValue
+	    if {[winfo ismapped $widgets(popup)]} {
+		$widgets(this) close
+		return -code break;
+	    }
+	}
 
-        "<Return>" {
-            # did the value change?
-            set newValue [set ::combobox::${w}::entryTextVariable]
-            if {$oldValue != $newValue} {
-                callCommand $widgets(this) $newValue
-            }
+	"<Return>" {
+	    # did the value change?
+	    set newValue [set ::combobox::${w}::entryTextVariable]
+	    if {$oldValue != $newValue} {
+		callCommand $widgets(this) $newValue
+	    }
 
-            if 0 {
-            if {$options(-editable)} {
-                # if there is something in the list that is selected,
-                # we'll pick it. Otherwise, use whats in the
-                # entry widget...
-                set index [$widgets(listbox) curselection]
-                if {[winfo ismapped $widgets(popup)] && \
-                        [llength $index] > 0} {
+	    if 0 {
+	    if {$options(-editable)} {
+		# if there is something in the list that is selected,
+		# we'll pick it. Otherwise, use whats in the 
+		# entry widget...
+		set index [$widgets(listbox) curselection]
+		if {[winfo ismapped $widgets(popup)] && \
+			[llength $index] > 0} {
 
-                    ::combobox::select $widgets(this) \
-                            [$widgets(listbox) curselection]
-                    return -code break;
+		    ::combobox::select $widgets(this) \
+			    [$widgets(listbox) curselection]
+		    return -code break;
 
-                } else {
-                    # the value doesn't change in this case, but we
-                    # do need to arrange for the -command to be called
-                    callCommand $widgets(this) \
-                            [set ::combobox::${w}::entryTextVariable]
-                    $widgets(this) close
+		} else {
+		    # the value doesn't change in this case, but we
+		    # do need to arrange for the -command to be called
+		    callCommand $widgets(this) \
+			    [set ::combobox::${w}::entryTextVariable]
+		    $widgets(this) close
 
-                    return
-                }
-            }
-            }
+		    return
+		}
+	    }
+	    }
 
-            if {[winfo ismapped $widgets(popup)]} {
-                ::combobox::select $widgets(this) \
-                        [$widgets(listbox) curselection]
-                return -code break;
-            }
+	    if {[winfo ismapped $widgets(popup)]} {
+		::combobox::select $widgets(this) \
+			[$widgets(listbox) curselection]
+		return -code break;
+	    } 
 
-        }
+	}
 
-        "<Next>" {
-            $widgets(listbox) yview scroll 1 pages
-            set index [$widgets(listbox) index @0,0]
-            $widgets(listbox) see $index
-            $widgets(listbox) activate $index
-            $widgets(listbox) selection clear 0 end
-            $widgets(listbox) selection anchor $index
-            $widgets(listbox) selection set $index
+	"<Next>" {
+	    $widgets(listbox) yview scroll 1 pages
+	    set index [$widgets(listbox) index @0,0]
+	    $widgets(listbox) see $index
+	    $widgets(listbox) activate $index
+	    $widgets(listbox) selection clear 0 end
+	    $widgets(listbox) selection anchor $index
+	    $widgets(listbox) selection set $index
 
-        }
+	}
 
-        "<Prior>" {
-            $widgets(listbox) yview scroll -1 pages
-            set index [$widgets(listbox) index @0,0]
-            $widgets(listbox) activate $index
-            $widgets(listbox) see $index
-            $widgets(listbox) selection clear 0 end
-            $widgets(listbox) selection anchor $index
-            $widgets(listbox) selection set $index
-        }
+	"<Prior>" {
+	    $widgets(listbox) yview scroll -1 pages
+	    set index [$widgets(listbox) index @0,0]
+	    $widgets(listbox) activate $index
+	    $widgets(listbox) see $index
+	    $widgets(listbox) selection clear 0 end
+	    $widgets(listbox) selection anchor $index
+	    $widgets(listbox) selection set $index
+	}
 
-        "<Down>" {
-            if {[winfo ismapped $widgets(popup)]} {
-                tkListboxUpDown $widgets(listbox) 1
-                return -code break;
+	"<Down>" {
+	    if {[winfo ismapped $widgets(popup)]} {
+		tkListboxUpDown $widgets(listbox) 1
+		return -code break;
 
-            } else {
-                if {$options(-state) != "disabled"} {
-                    $widgets(this) open
-                    return -code break;
-                }
-            }
-        }
-        "<Up>" {
-            if {[winfo ismapped $widgets(popup)]} {
-                tkListboxUpDown $widgets(listbox) -1
-                return -code break;
+	    } else {
+		if {$options(-state) != "disabled"} {
+		    $widgets(this) open
+		    return -code break;
+		}
+	    }
+	}
+	"<Up>" {
+	    if {[winfo ismapped $widgets(popup)]} {
+		tkListboxUpDown $widgets(listbox) -1
+		return -code break;
 
-            } else {
-                if {$options(-state) != "disabled"} {
-                    $widgets(this) open
-                    return -code break;
-                }
-            }
-        }
+	    } else {
+		if {$options(-state) != "disabled"} {
+		    $widgets(this) open
+		    return -code break;
+		}
+	    }
+	}
     }
 }
 
-# this cleans up the mess that is left behind when the widget goes away
+# this cleans up the mess that is left behind when the widget goes away 
 # at least, that's the theory.
 proc ::combobox::destroyHandler {w} {
 
     # kill any trace we may have started...
     namespace eval ::combobox::$w {
-        variable options
-        variable widgets
+	variable options
+	variable widgets
 
-        # kill any trace we have for the user's -textvariable
-        catch {
-            if {[info exists options(-textvariable)]} {
-                if {[string length $options(-textvariable)]} {
-                    trace vdelete $options(-textvariable) w \
-                            [list ::combobox::vTrace $widgets(this)]
-                }
-            }
-        }
+	# kill any trace we have for the user's -textvariable
+	catch {
+	    if {[info exists options(-textvariable)]} {
+		if {[string length $options(-textvariable)]} {
+		    trace vdelete $options(-textvariable) w \
+			    [list ::combobox::vTrace $widgets(this)]
+		}
+	    }
+	}
     }
 
     # kill the namespace
@@ -5555,12 +5699,12 @@ proc ::combobox::find {w {exact 0}} {
     set pattern [$widgets(entry) get]
 
     if {[string length $pattern] == 0} {
-        # clear the current selection
-        $widgets(listbox) see 0
-        $widgets(listbox) selection clear 0 end
-        $widgets(listbox) selection anchor 0
-        $widgets(listbox) activate 0
-        return
+	# clear the current selection
+	$widgets(listbox) see 0
+	$widgets(listbox) selection clear 0 end
+	$widgets(listbox) selection anchor 0
+	$widgets(listbox) activate 0
+	return
     }
 
     # we're going to be searching this list...
@@ -5569,7 +5713,7 @@ proc ::combobox::find {w {exact 0}} {
     # if we are doing an exact match, try to find,
     # well, an exact match
     if {$exact} {
-        set exactMatch [lsearch -exact $list $pattern]
+	set exactMatch [lsearch -exact $list $pattern]
     }
 
     # search for it. We'll try to be clever and not only
@@ -5579,10 +5723,10 @@ proc ::combobox::find {w {exact 0}} {
     # of some sort.
     set index -1
     while {$index == -1 && [string length $pattern]} {
-        set index [lsearch -glob $list "$pattern*"]
-        if {$index == -1} {
-            regsub {.$} $pattern {} pattern
-        }
+	set index [lsearch -glob $list "$pattern*"]
+	if {$index == -1} {
+	    regsub {.$} $pattern {} pattern
+	}
     }
 
     # this is the item that most closely matches...
@@ -5591,54 +5735,54 @@ proc ::combobox::find {w {exact 0}} {
     # did we find a match? If so, do some additional munging...
     if {$index != -1} {
 
-        # we need to find the part of the first item that is
-        # unique wrt the second... I know there's probably a
-        # simpler way to do this...
+	# we need to find the part of the first item that is 
+	# unique wrt the second... I know there's probably a
+	# simpler way to do this... 
 
-        set nextIndex [expr {$index + 1}]
-        set nextItem [lindex $list $nextIndex]
+	set nextIndex [expr {$index + 1}]
+	set nextItem [lindex $list $nextIndex]
 
-        # we don't really need to do much if the next
-        # item doesn't match our pattern...
-        if {[string match $pattern* $nextItem]} {
-            # ok, the next item matches our pattern, too
-            # now the trick is to find the first character
-            # where they *don't* match...
-            set marker [string length $pattern]
-            while {$marker <= [string length $pattern]} {
-                set a [string index $thisItem $marker]
-                set b [string index $nextItem $marker]
-                if {[string compare $a $b] == 0} {
-                    append pattern $a
-                    incr marker
-                } else {
-                    break
-                }
-            }
-        } else {
-            set marker [string length $pattern]
-        }
-
+	# we don't really need to do much if the next
+	# item doesn't match our pattern...
+	if {[string match $pattern* $nextItem]} {
+	    # ok, the next item matches our pattern, too
+	    # now the trick is to find the first character
+	    # where they *don't* match...
+	    set marker [string length $pattern]
+	    while {$marker <= [string length $pattern]} {
+		set a [string index $thisItem $marker]
+		set b [string index $nextItem $marker]
+		if {[string compare $a $b] == 0} {
+		    append pattern $a
+		    incr marker
+		} else {
+		    break
+		}
+	    }
+	} else {
+	    set marker [string length $pattern]
+	}
+	
     } else {
-        set marker end
-        set index 0
+	set marker end
+	set index 0
     }
 
     # ok, we know the pattern and what part is unique;
     # update the entry widget and listbox appropriately
     if {$exact && $exactMatch == -1} {
-        $widgets(listbox) selection clear 0 end
-        $widgets(listbox) see $index
+	$widgets(listbox) selection clear 0 end
+	$widgets(listbox) see $index
     } else {
-        $widgets(entry) delete 0 end
-        $widgets(entry) insert end $thisItem
-        $widgets(entry) selection clear
-        $widgets(entry) selection range $marker end
-        $widgets(listbox) activate $index
-        $widgets(listbox) selection clear 0 end
-        $widgets(listbox) selection anchor $index
-        $widgets(listbox) selection set $index
-        $widgets(listbox) see $index
+	$widgets(entry) delete 0 end
+	$widgets(entry) insert end $thisItem
+	$widgets(entry) selection clear
+	$widgets(entry) selection range $marker end
+	$widgets(listbox) activate $index
+	$widgets(listbox) selection clear 0 end
+	$widgets(listbox) selection anchor $index
+	$widgets(listbox) selection set $index
+	$widgets(listbox) see $index
     }
 }
 
@@ -5649,9 +5793,9 @@ proc ::combobox::select {w index} {
     upvar ::combobox::${w}::options options
 
     catch {
-        set data [$widgets(listbox) get [lindex $index 0]]
-        ::combobox::setValue $widgets(this) $data
-        $widgets(entry) selection range 0 end
+	set data [$widgets(listbox) get [lindex $index 0]]
+	::combobox::setValue $widgets(this) $data
+	$widgets(entry) selection range 0 end
     }
 
     $widgets(this) close
@@ -5662,37 +5806,37 @@ proc ::combobox::handleScrollbar {w {action "unknown"}} {
     upvar ::combobox::${w}::options options
 
     if {$options(-height) == 0} {
-        set hlimit $options(-maxheight)
+	set hlimit $options(-maxheight)
     } else {
-        set hlimit $options(-height)
-    }
+	set hlimit $options(-height)
+    }		    
 
     switch $action {
-        "grow" {
-            if {$hlimit > 0 && [$widgets(listbox) size] > $hlimit} {
-                pack $widgets(vsb) -side right -fill y -expand n
-            }
-        }
+	"grow" {
+	    if {$hlimit > 0 && [$widgets(listbox) size] > $hlimit} {
+		pack $widgets(vsb) -side right -fill y -expand n
+	    }
+	}
 
-        "shrink" {
-            if {$hlimit > 0 && [$widgets(listbox) size] <= $hlimit} {
-                pack forget $widgets(vsb)
-            }
-        }
+	"shrink" {
+	    if {$hlimit > 0 && [$widgets(listbox) size] <= $hlimit} {
+		pack forget $widgets(vsb)
+	    }
+	}
 
-        "crop" {
-            # this means the window was cropped and we definitely
-            # need a scrollbar no matter what the user wants
-            pack $widgets(vsb) -side right -fill y -expand n
-        }
+	"crop" {
+	    # this means the window was cropped and we definitely 
+	    # need a scrollbar no matter what the user wants
+	    pack $widgets(vsb) -side right -fill y -expand n
+	}
 
-        default {
-            if {$hlimit > 0 && [$widgets(listbox) size] > $hlimit} {
-                pack $widgets(vsb) -side right -fill y -expand n
-            } else {
-                pack forget $widgets(vsb)
-            }
-        }
+	default {
+	    if {$hlimit > 0 && [$widgets(listbox) size] > $hlimit} {
+		pack $widgets(vsb) -side right -fill y -expand n
+	    } else {
+		pack forget $widgets(vsb)
+	    }
+	}
     }
 }
 
@@ -5701,20 +5845,20 @@ proc ::combobox::handleScrollbar {w {action "unknown"}} {
 proc ::combobox::computeGeometry {w} {
     upvar ::combobox::${w}::widgets widgets
     upvar ::combobox::${w}::options options
-
+    
     if {$options(-height) == 0 && $options(-maxheight) != "0"} {
-        # if this is the case, count the items and see if
-        # it exceeds our maxheight. If so, set the listbox
-        # size to maxheight...
-        set nitems [$widgets(listbox) size]
-        if {$nitems > $options(-maxheight)} {
-            # tweak the height of the listbox
-            $widgets(listbox) configure -height $options(-maxheight)
-        } else {
-            # un-tweak the height of the listbox
-            $widgets(listbox) configure -height 0
-        }
-        update idletasks
+	# if this is the case, count the items and see if
+	# it exceeds our maxheight. If so, set the listbox
+	# size to maxheight...
+	set nitems [$widgets(listbox) size]
+	if {$nitems > $options(-maxheight)} {
+	    # tweak the height of the listbox
+	    $widgets(listbox) configure -height $options(-maxheight)
+	} else {
+	    # un-tweak the height of the listbox
+	    $widgets(listbox) configure -height 0
+	}
+	update idletasks
     }
 
     # compute height and width of the dropdown list
@@ -5739,66 +5883,66 @@ proc ::combobox::computeGeometry {w} {
     # simply change the if statement... (and be sure to update this
     # comment!)
     set x  [expr {$rootx + $vrootx}]
-    if {0} {
-        set rightEdge [expr {$x + $width}]
-        if {$rightEdge > $screenWidth} {
-            set x [expr {$screenWidth - $width}]
-        }
-        if {$x < 0} {set x 0}
+    if {0} { 
+	set rightEdge [expr {$x + $width}]
+	if {$rightEdge > $screenWidth} {
+	    set x [expr {$screenWidth - $width}]
+	}
+	if {$x < 0} {set x 0}
     }
 
-    # the y coordinate is the rooty plus vrooty offset plus
-    # the height of the static part of the widget plus 1 for a
+    # the y coordinate is the rooty plus vrooty offset plus 
+    # the height of the static part of the widget plus 1 for a 
     # tiny bit of visual separation...
     set y [expr {$rooty + $vrooty + [winfo reqheight $widgets(this)] + 1}]
     set bottomEdge [expr {$y + $height}]
 
     if {$bottomEdge >= $screenHeight} {
-        # ok. Fine. Pop it up above the entry widget isntead of
-        # below.
-        set y [expr {($rooty - $height - 1) + $vrooty}]
+	# ok. Fine. Pop it up above the entry widget isntead of
+	# below.
+	set y [expr {($rooty - $height - 1) + $vrooty}]
 
-        if {$y < 0} {
-            # this means it extends beyond our screen. How annoying.
-            # Now we'll try to be real clever and either pop it up or
-            # down, depending on which way gives us the biggest list.
-            # then, we'll trim the list to fit and force the use of
-            # a scrollbar
+	if {$y < 0} {
+	    # this means it extends beyond our screen. How annoying.
+	    # Now we'll try to be real clever and either pop it up or
+	    # down, depending on which way gives us the biggest list. 
+	    # then, we'll trim the list to fit and force the use of
+	    # a scrollbar
 
-            # (sadly, for windows users this measurement doesn't
-            # take into consideration the height of the taskbar,
-            # but don't blame me -- there isn't any way to detect
-            # it or figure out its dimensions. The same probably
-            # applies to any window manager with some magic windows
-            # glued to the top or bottom of the screen)
+	    # (sadly, for windows users this measurement doesn't
+	    # take into consideration the height of the taskbar,
+	    # but don't blame me -- there isn't any way to detect
+	    # it or figure out its dimensions. The same probably
+	    # applies to any window manager with some magic windows
+	    # glued to the top or bottom of the screen)
 
-            if {$rooty > [expr {$screenHeight / 2}]} {
-                # we are in the lower half of the screen --
-                # pop it up. Y is zero; that parts easy. The height
-                # is simply the y coordinate of our widget, minus
-                # a pixel for some visual separation. The y coordinate
-                # will be the topof the screen.
-                set y 1
-                set height [expr {$rooty - 1 - $y}]
+	    if {$rooty > [expr {$screenHeight / 2}]} {
+		# we are in the lower half of the screen -- 
+		# pop it up. Y is zero; that parts easy. The height
+		# is simply the y coordinate of our widget, minus
+		# a pixel for some visual separation. The y coordinate
+		# will be the topof the screen.
+		set y 1
+		set height [expr {$rooty - 1 - $y}]
 
-            } else {
-                # we are in the upper half of the screen --
-                # pop it down
-                set y [expr {$rooty + $vrooty + \
-            [winfo reqheight $widgets(this)] + 1}]
-                set height [expr {$screenHeight - $y}]
+	    } else {
+		# we are in the upper half of the screen --
+		# pop it down
+		set y [expr {$rooty + $vrooty + \
+	    [winfo reqheight $widgets(this)] + 1}]
+		set height [expr {$screenHeight - $y}]
 
     }
 
-            # force a scrollbar
-            handleScrollbar $widgets(this) crop
-        }
+	    # force a scrollbar
+	    handleScrollbar $widgets(this) crop
+	}	   
     }
 
     if {$y < 0} {
-        # hmmm. Bummer.
-        set y 0
-        set height $screenheight
+	# hmmm. Bummer.
+	set y 0
+	set height $screenheight
     }
 
     set geometry [format "=%dx%d+%d+%d" $width $height $x $y]
@@ -5815,22 +5959,22 @@ proc ::combobox::doInternalWidgetCommand {w subwidget command args} {
     set subcommand $command
     set command [concat $widgets($subwidget) $command $args]
     if {[catch $command result]} {
-        # replace the subwidget name with the megawidget name
-        regsub $widgets($subwidget) $result $widgets(this) result
+	# replace the subwidget name with the megawidget name
+	regsub $widgets($subwidget) $result $widgets(this) result
 
-        # replace specific instances of the subwidget command
-        # with out megawidget command
-        switch $subwidget,$subcommand {
-            listbox,index  {regsub "index"  $result "list index"  result}
-            listbox,insert {regsub "insert" $result "list insert" result}
-            listbox,delete {regsub "delete" $result "list delete" result}
-            listbox,get    {regsub "get"    $result "list get"    result}
-            listbox,size   {regsub "size"   $result "list size"   result}
-        }
-        error $result
+	# replace specific instances of the subwidget command
+	# with out megawidget command
+	switch $subwidget,$subcommand {
+	    listbox,index  {regsub "index"  $result "list index"  result}
+	    listbox,insert {regsub "insert" $result "list insert" result}
+	    listbox,delete {regsub "delete" $result "list delete" result}
+	    listbox,get    {regsub "get"    $result "list get"    result}
+	    listbox,size   {regsub "size"   $result "list size"   result}
+	}
+	error $result
 
     } else {
-        return $result
+	return $result
     }
 }
 
@@ -5845,222 +5989,222 @@ proc ::combobox::widgetProc {w command args} {
 
     # this is just shorthand notation...
     set doWidgetCommand \
-            [list ::combobox::doInternalWidgetCommand $widgets(this)]
+	    [list ::combobox::doInternalWidgetCommand $widgets(this)]
 
     if {$command == "list"} {
-        # ok, the next argument is a list command; we'll
-        # rip it from args and append it to command to
-        # create a unique internal command
-        #
-        # NB: because of the sloppy way we are doing this,
-        # we'll also let the user enter our secret command
-        # directly (eg: listinsert, listdelete), but we
-        # won't document that fact
-        set command "list[lindex $args 0]"
-        set args [lrange $args 1 end]
+	# ok, the next argument is a list command; we'll 
+	# rip it from args and append it to command to
+	# create a unique internal command
+	#
+	# NB: because of the sloppy way we are doing this,
+	# we'll also let the user enter our secret command
+	# directly (eg: listinsert, listdelete), but we
+	# won't document that fact
+	set command "list[lindex $args 0]"
+	set args [lrange $args 1 end]
     }
 
     # many of these commands are just synonyms for specific
     # commands in one of the subwidgets. We'll get them out
     # of the way first, then do the custom commands.
     switch $command {
-        bbox            {eval $doWidgetCommand entry bbox $args}
-        delete          {eval $doWidgetCommand entry delete $args}
-        get             {eval $doWidgetCommand entry get $args}
-        icursor         {eval $doWidgetCommand entry icursor $args}
-        index           {eval $doWidgetCommand entry index $args}
-        insert          {eval $doWidgetCommand entry insert $args}
-        scan            {eval $doWidgetCommand entry scan $args}
-        selection       {eval $doWidgetCommand entry selection $args}
-        xview           {eval $doWidgetCommand entry xview $args}
-        listget         {eval $doWidgetCommand listbox get $args}
-        listindex       {eval $doWidgetCommand listbox index $args}
-        listsize        {eval $doWidgetCommand listbox size $args}
+	bbox 		{eval $doWidgetCommand entry bbox $args}
+	delete		{eval $doWidgetCommand entry delete $args}
+	get 		{eval $doWidgetCommand entry get $args}
+	icursor 	{eval $doWidgetCommand entry icursor $args}
+	index   	{eval $doWidgetCommand entry index $args}
+	insert 		{eval $doWidgetCommand entry insert $args}
+	scan 		{eval $doWidgetCommand entry scan $args}
+	selection 	{eval $doWidgetCommand entry selection $args}
+	xview 		{eval $doWidgetCommand entry xview $args}
+	listget 	{eval $doWidgetCommand listbox get $args}
+	listindex 	{eval $doWidgetCommand listbox index $args}
+	listsize 	{eval $doWidgetCommand listbox size $args}
 
-        subwidget {
-            set knownWidgets [list button entry listbox popup vsb]
-            if {[llength $args] == 0} {
-                return $knownWidgets
-            }
+	subwidget {
+	    set knownWidgets [list button entry listbox popup vsb]
+	    if {[llength $args] == 0} {
+		return $knownWidgets
+	    }
 
-            set name [lindex $args 0]
-            if {[lsearch $knownWidgets $name] != -1} {
-                return $widgets($name)
-            } else {
-                error "unknown subwidget $name"
-            }
-        }
+	    set name [lindex $args 0]
+	    if {[lsearch $knownWidgets $name] != -1} {
+		return $widgets($name)
+	    } else {
+		error "unknown subwidget $name"
+	    }
+	}
 
-        listinsert {
-            eval $doWidgetCommand listbox insert $args
-            handleScrollbar $w "grow"
-        }
+	listinsert {
+	    eval $doWidgetCommand listbox insert $args
+	    handleScrollbar $w "grow"
+	}
 
-        listdelete {
-            eval $doWidgetCommand listbox delete $args
-            handleScrollbar $w "shrink"
-        }
+	listdelete {
+	    eval $doWidgetCommand listbox delete $args
+	    handleScrollbar $w "shrink"
+	}
 
-        toggle {
-            # ignore this command if the widget is disabled...
-            if {$options(-state) == "disabled"} return
+	toggle {
+	    # ignore this command if the widget is disabled...
+	    if {$options(-state) == "disabled"} return
 
-            # pops down the list if it is not, hides it
-            # if it is...
-            if {[winfo ismapped $widgets(popup)]} {
-                $widgets(this) close
-            } else {
-                $widgets(this) open
-            }
-        }
+	    # pops down the list if it is not, hides it
+	    # if it is...
+	    if {[winfo ismapped $widgets(popup)]} {
+		$widgets(this) close
+	    } else {
+		$widgets(this) open
+	    }
+	}
 
-        open {
+	open {
 
-            # if this is an editable combobox, the focus should
-            # be set to the entry widget
-            if {$options(-editable)} {
-                focus $widgets(entry)
-                $widgets(entry) select range 0 end
-                $widgets(entry) icur end
-            }
+	    # if this is an editable combobox, the focus should
+	    # be set to the entry widget
+	    if {$options(-editable)} {
+		focus $widgets(entry)
+		$widgets(entry) select range 0 end
+		$widgets(entry) icur end
+	    }
 
-            # if we are disabled, we won't allow this to happen
-            if {$options(-state) == "disabled"} {
-                return 0
-            }
+	    # if we are disabled, we won't allow this to happen
+	    if {$options(-state) == "disabled"} {
+		return 0
+	    }
 
-            # compute the geometry of the window to pop up, and set
-            # it, and force the window manager to take notice
-            # (even if it is not presently visible).
-            #
-            # this isn't strictly necessary if the window is already
-            # mapped, but we'll go ahead and set the geometry here
-            # since its harmless and *may* actually reset the geometry
-            # to something better in some weird case.
-            set geometry [::combobox::computeGeometry $widgets(this)]
-            wm geometry $widgets(popup) $geometry
-            update idletasks
+	    # compute the geometry of the window to pop up, and set
+	    # it, and force the window manager to take notice
+	    # (even if it is not presently visible).
+	    #
+	    # this isn't strictly necessary if the window is already
+	    # mapped, but we'll go ahead and set the geometry here
+	    # since its harmless and *may* actually reset the geometry
+	    # to something better in some weird case.
+	    set geometry [::combobox::computeGeometry $widgets(this)]
+	    wm geometry $widgets(popup) $geometry
+	    update idletasks
 
-            # if we are already open, there's nothing else to do
-            if {[winfo ismapped $widgets(popup)]} {
-                return 0
-            }
+	    # if we are already open, there's nothing else to do
+	    if {[winfo ismapped $widgets(popup)]} {
+		return 0
+	    }
 
-            # save the widget that currently has the focus; we'll restore
-            # the focus there when we're done
-            set oldFocus [focus]
+	    # save the widget that currently has the focus; we'll restore
+	    # the focus there when we're done
+	    set oldFocus [focus]
 
-            # ok, tweak the visual appearance of things and
-            # make the list pop up
-            $widgets(button) configure -relief sunken
-            wm deiconify $widgets(popup)
-            raise $widgets(popup) [winfo parent $widgets(this)]
+	    # ok, tweak the visual appearance of things and 
+	    # make the list pop up
+	    $widgets(button) configure -relief sunken
+	    wm deiconify $widgets(popup) 
+	    raise $widgets(popup) [winfo parent $widgets(this)]
 
-            # force focus to the entry widget so we can handle keypress
-            # events for traversal
-            focus -force $widgets(entry)
+	    # force focus to the entry widget so we can handle keypress
+	    # events for traversal
+	    focus -force $widgets(entry)
 
-            # select something by default, but only if its an
-            # exact match...
-            ::combobox::find $widgets(this) 1
+	    # select something by default, but only if its an
+	    # exact match...
+	    ::combobox::find $widgets(this) 1
 
-            # save the current grab state for the display containing
-            # this widget. We'll restore it when we close the dropdown
-            # list
-            set status "none"
-            set grab [grab current $widgets(this)]
-            if {$grab != ""} {set status [grab status $grab]}
-            set oldGrab [list $grab $status]
-            unset grab status
+	    # save the current grab state for the display containing
+	    # this widget. We'll restore it when we close the dropdown
+	    # list
+	    set status "none"
+	    set grab [grab current $widgets(this)]
+	    if {$grab != ""} {set status [grab status $grab]}
+	    set oldGrab [list $grab $status]
+	    unset grab status
 
-            # *gasp* do a global grab!!! Mom always told not to
-            # do things like this, but these are desparate times.
-            grab -global $widgets(this)
+	    # *gasp* do a global grab!!! Mom always told not to
+	    # do things like this, but these are desparate times.
+	    grab -global $widgets(this)
 
-            # fake the listbox into thinking it has focus. This is
-            # necessary to get scanning initialized properly in the
-            # listbox.
-            event generate $widgets(listbox) <B1-Enter>
+	    # fake the listbox into thinking it has focus. This is 
+	    # necessary to get scanning initialized properly in the
+	    # listbox.
+	    event generate $widgets(listbox) <B1-Enter>
 
-            return 1
-        }
+	    return 1
+	}
 
-        close {
-            # if we are already closed, don't do anything...
-            if {![winfo ismapped $widgets(popup)]} {
-                return 0
-            }
+	close {
+	    # if we are already closed, don't do anything...
+	    if {![winfo ismapped $widgets(popup)]} {
+		return 0
+	    }
 
-            # restore the focus and grab, but ignore any errors...
-            # we're going to be paranoid and release the grab before
-            # trying to set any other grab because we really really
-            # really want to make sure the grab is released.
-            catch {focus $oldFocus} result
-            catch {grab release $widgets(this)}
-            catch {
-                set status [lindex $oldGrab 1]
-                if {$status == "global"} {
-                    grab -global [lindex $oldGrab 0]
-                } elseif {$status == "local"} {
-                    grab [lindex $oldGrab 0]
-                }
-                unset status
-            }
+	    # restore the focus and grab, but ignore any errors...
+	    # we're going to be paranoid and release the grab before
+	    # trying to set any other grab because we really really
+	    # really want to make sure the grab is released.
+	    catch {focus $oldFocus} result
+	    catch {grab release $widgets(this)}
+	    catch {
+		set status [lindex $oldGrab 1]
+		if {$status == "global"} {
+		    grab -global [lindex $oldGrab 0]
+		} elseif {$status == "local"} {
+		    grab [lindex $oldGrab 0]
+		}
+		unset status
+	    }
 
-            # hides the listbox
-            $widgets(button) configure -relief raised
-            wm withdraw $widgets(popup)
+	    # hides the listbox
+	    $widgets(button) configure -relief raised
+	    wm withdraw $widgets(popup) 
 
-            # select the data in the entry widget. Not sure
-            # why, other than observation seems to suggest that's
-            # what windows widgets do.
-            set editable [::combobox::getBoolean $options(-editable)]
-            if {$editable} {
-                $widgets(entry) selection range 0 end
-                $widgets(button) configure -relief raised
-            }
+	    # select the data in the entry widget. Not sure
+	    # why, other than observation seems to suggest that's
+	    # what windows widgets do.
+	    set editable [::combobox::getBoolean $options(-editable)]
+	    if {$editable} {
+		$widgets(entry) selection range 0 end
+		$widgets(button) configure -relief raised
+	    }
 
 
-            # magic tcl stuff (see tk.tcl in the distribution
-            # lib directory)
-            tkCancelRepeat
+	    # magic tcl stuff (see tk.tcl in the distribution 
+	    # lib directory)
+	    tkCancelRepeat
 
-            return 1
-        }
+	    return 1
+	}
 
-        cget {
-            # tries to mimic the standard "cget" command
-            if {[llength $args] != 1} {
-                error "wrong # args: should be \"$widgets(this) cget option\""
-            }
-            set option [lindex $args 0]
-            return [::combobox::configure $widgets(this) cget $option]
-        }
+	cget {
+	    # tries to mimic the standard "cget" command
+	    if {[llength $args] != 1} {
+		error "wrong # args: should be \"$widgets(this) cget option\""
+	    }
+	    set option [lindex $args 0]
+	    return [::combobox::configure $widgets(this) cget $option]
+	}
 
-        configure {
-            # trys to mimic the standard "configure" command
-            if {[llength $args] == 0} {
-                # this isn't the same format as "real" widgets,
-                # but for now its good enough
-                foreach item [lsort [array names options]] {
-                    lappend result [list $item $options($item)]
-                }
-                return $result
+	configure {
+	    # trys to mimic the standard "configure" command
+	    if {[llength $args] == 0} {
+		# this isn't the same format as "real" widgets,
+		# but for now its good enough
+		foreach item [lsort [array names options]] {
+		    lappend result [list $item $options($item)]
+		}
+		return $result
 
-            } elseif {[llength $args] == 1} {
-                # they are requesting configure information...
-                set option [lindex $args 0]
-                return [::combobox::configure $widgets(this) get $option]
-            } else {
-                array set tmpopt $args
-                foreach opt [array names tmpopt] {
-                    ::combobox::configure $widgets(this) set $opt $tmpopt($opt)
-                }
-            }
-        }
-        default {
-            error "bad option \"$command\""
-        }
+	    } elseif {[llength $args] == 1} {
+		# they are requesting configure information...
+		set option [lindex $args 0]
+		return [::combobox::configure $widgets(this) get $option]
+	    } else {
+		array set tmpopt $args
+		foreach opt [array names tmpopt] {
+		    ::combobox::configure $widgets(this) set $opt $tmpopt($opt)
+		}
+	    }
+	}
+	default {
+	    error "bad option \"$command\""
+	}
     }
 }
 
@@ -6071,203 +6215,203 @@ proc ::combobox::configure {w action {option ""} {newValue ""}} {
     set namespace "::combobox::${w}"
 
     if {$action == "get"} {
-        # this really ought to do more than just get the value,
-        # but for the time being I don't fully support the configure
-        # command in all its glory...
-        if {$option == "-value"} {
-            return [list "-value" [$widgets(entry) get]]
-        } else {
-            return [list $option $options($option)]
-        }
+	# this really ought to do more than just get the value,
+	# but for the time being I don't fully support the configure
+	# command in all its glory...
+	if {$option == "-value"} {
+	    return [list "-value" [$widgets(entry) get]]
+	} else {
+	    return [list $option $options($option)]
+	}
 
     } elseif {$action == "cget"} {
-        if {$option == "-value"} {
-            return [$widgets(entry) get]
-        } else {
-            return $options($option)
-        }
+	if {$option == "-value"} {
+	    return [$widgets(entry) get]
+	} else {
+	    return $options($option)
+	}
 
     } else {
 
-        if {[info exists options($option)]} {
-            set oldValue $options($option)
-            set options($option) $newValue
-        } else {
-            set oldValue ""
-            set options($option) $newValue
-        }
+	if {[info exists options($option)]} {
+	    set oldValue $options($option)
+	    set options($option) $newValue
+	} else {
+	    set oldValue ""
+	    set options($option) $newValue
+	}
 
-        # some (actually, most) options require us to
-        # do something, like change the attributes of
-        # a widget or two. Here's where we do that...
-        switch -- $option {
-            -background {
-                $widgets(frame)   configure -background $newValue
-                $widgets(entry)   configure -background $newValue
-                $widgets(listbox) configure -background $newValue
-                $widgets(vsb)     configure -background $newValue
-                $widgets(vsb)     configure -troughcolor $newValue
-            }
+	# some (actually, most) options require us to
+	# do something, like change the attributes of
+	# a widget or two. Here's where we do that...
+	switch -- $option {
+	    -background {
+		$widgets(frame)   configure -background $newValue
+		$widgets(entry)   configure -background $newValue
+		$widgets(listbox) configure -background $newValue
+		$widgets(vsb)     configure -background $newValue
+		$widgets(vsb)     configure -troughcolor $newValue
+	    }
 
-            -borderwidth {
-                $widgets(frame) configure -borderwidth $newValue
-            }
+	    -borderwidth {
+		$widgets(frame) configure -borderwidth $newValue
+	    }
 
-            -command {
-                # nothing else to do...
-            }
+	    -command {
+		# nothing else to do...
+	    }
 
-            -commandstate {
-                # do some value checking...
-                if {$newValue != "normal" && $newValue != "disabled"} {
-                    set options($option) $oldValue
-                    error "bad state value \"$newValue\"; must be normal or disabled"
-                }
-            }
+	    -commandstate {
+		# do some value checking...
+		if {$newValue != "normal" && $newValue != "disabled"} {
+		    set options($option) $oldValue
+		    error "bad state value \"$newValue\"; must be normal or disabled"
+		}
+	    }
 
-            -cursor {
-                $widgets(frame) configure -cursor $newValue
-                $widgets(entry) configure -cursor $newValue
-                $widgets(listbox) configure -cursor $newValue
-            }
+	    -cursor {
+		$widgets(frame) configure -cursor $newValue
+		$widgets(entry) configure -cursor $newValue
+		$widgets(listbox) configure -cursor $newValue
+	    }
 
-            -editable {
-                if {$newValue} {
-                    # it's editable...
-                    $widgets(entry) configure -state normal
-                } else {
-                    $widgets(entry) configure -state disabled
-                }
-            }
+	    -editable {
+		if {$newValue} {
+		    # it's editable...
+		    $widgets(entry) configure -state normal
+		} else {
+		    $widgets(entry) configure -state disabled
+		}
+	    }
 
-            -font {
-                $widgets(entry) configure -font $newValue
-                $widgets(listbox) configure -font $newValue
-            }
+	    -font {
+		$widgets(entry) configure -font $newValue
+		$widgets(listbox) configure -font $newValue
+	    }
 
-            -foreground {
-                $widgets(entry)   configure -foreground $newValue
-                $widgets(button)  configure -foreground $newValue
-                $widgets(listbox) configure -foreground $newValue
-            }
+	    -foreground {
+		$widgets(entry)   configure -foreground $newValue
+		$widgets(button)  configure -foreground $newValue
+		$widgets(listbox) configure -foreground $newValue
+	    }
 
-            -height {
-                $widgets(listbox) configure -height $newValue
-                handleScrollbar $w
-            }
+	    -height {
+		$widgets(listbox) configure -height $newValue
+		handleScrollbar $w
+	    }
 
-            -highlightbackground {
-                $widgets(frame) configure -highlightbackground $newValue
-            }
+	    -highlightbackground {
+		$widgets(frame) configure -highlightbackground $newValue
+	    }
 
-            -highlightcolor {
-                $widgets(frame) configure -highlightcolor $newValue
-            }
+	    -highlightcolor {
+		$widgets(frame) configure -highlightcolor $newValue
+	    }
 
-            -highlightthickness {
-                $widgets(frame) configure -highlightthickness $newValue
-            }
+	    -highlightthickness {
+		$widgets(frame) configure -highlightthickness $newValue
+	    }
+	    
+	    -image {
+		if {[string length $newValue] > 0} {
+		    $widgets(button) configure -image $newValue
+		} else {
+		    $widgets(button) configure -image ::combobox::bimage
+		}
+	    }
 
-            -image {
-                if {[string length $newValue] > 0} {
-                    $widgets(button) configure -image $newValue
-                } else {
-                    $widgets(button) configure -image ::combobox::bimage
-                }
-            }
+	    -maxheight {
+		# computeGeometry may dork with the actual height
+		# of the listbox, so let's undork it
+		$widgets(listbox) configure -height $options(-height)
+		handleScrollbar $w
+	    }
 
-            -maxheight {
-                # computeGeometry may dork with the actual height
-                # of the listbox, so let's undork it
-                $widgets(listbox) configure -height $options(-height)
-                handleScrollbar $w
-            }
+	    -relief {
+		$widgets(frame) configure -relief $newValue
+	    }
 
-            -relief {
-                $widgets(frame) configure -relief $newValue
-            }
+	    -selectbackground {
+		$widgets(entry) configure -selectbackground $newValue
+		$widgets(listbox) configure -selectbackground $newValue
+	    }
 
-            -selectbackground {
-                $widgets(entry) configure -selectbackground $newValue
-                $widgets(listbox) configure -selectbackground $newValue
-            }
+	    -selectborderwidth {
+		$widgets(entry) configure -selectborderwidth $newValue
+		$widgets(listbox) configure -selectborderwidth $newValue
+	    }
 
-            -selectborderwidth {
-                $widgets(entry) configure -selectborderwidth $newValue
-                $widgets(listbox) configure -selectborderwidth $newValue
-            }
+	    -selectforeground {
+		$widgets(entry) configure -selectforeground $newValue
+		$widgets(listbox) configure -selectforeground $newValue
+	    }
 
-            -selectforeground {
-                $widgets(entry) configure -selectforeground $newValue
-                $widgets(listbox) configure -selectforeground $newValue
-            }
+	    -state {
+		if {$newValue == "normal"} {
+		    # it's enabled
+		    set editable [::combobox::getBoolean \
+			    $options(-editable)]
+		    if {$editable} {
+			$widgets(entry) configure -state normal
+			$widgets(entry) configure -takefocus 1
+		    }
+		} elseif {$newValue == "disabled"}  {
+		    # it's disabled
+		    $widgets(entry) configure -state disabled
+		    $widgets(entry) configure -takefocus 0
 
-            -state {
-                if {$newValue == "normal"} {
-                    # it's enabled
-                    set editable [::combobox::getBoolean \
-                            $options(-editable)]
-                    if {$editable} {
-                        $widgets(entry) configure -state normal
-                        $widgets(entry) configure -takefocus 1
-                    }
-                } elseif {$newValue == "disabled"}  {
-                    # it's disabled
-                    $widgets(entry) configure -state disabled
-                    $widgets(entry) configure -takefocus 0
+		} else {
+		    set options($option) $oldValue
+		    error "bad state value \"$newValue\"; must be normal or disabled"
+		}
 
-                } else {
-                    set options($option) $oldValue
-                    error "bad state value \"$newValue\"; must be normal or disabled"
-                }
+	    }
 
-            }
+	    -takefocus {
+		$widgets(entry) configure -takefocus $newValue
+	    }
 
-            -takefocus {
-                $widgets(entry) configure -takefocus $newValue
-            }
+	    -textvariable {
+		# destroy our trace on the old value, if any
+		if {[string length $oldValue] > 0} {
+		    trace vdelete $oldValue w \
+			    [list ::combobox::vTrace $widgets(this)]
+		}
+		# set up a trace on the new value, if any. Also, set
+		# the value of the widget to the current value of
+		# the variable
 
-            -textvariable {
-                # destroy our trace on the old value, if any
-                if {[string length $oldValue] > 0} {
-                    trace vdelete $oldValue w \
-                            [list ::combobox::vTrace $widgets(this)]
-                }
-                # set up a trace on the new value, if any. Also, set
-                # the value of the widget to the current value of
-                # the variable
+		set variable ::$newValue
+		if {[string length $newValue] > 0} {
+		    if {[info exists $variable]} {
+			::combobox::setValue $widgets(this) [set $variable]
+		    }
+		    trace variable $variable w \
+			    [list ::combobox::vTrace $widgets(this)]
+		}
+	    }
 
-                set variable ::$newValue
-                if {[string length $newValue] > 0} {
-                    if {[info exists $variable]} {
-                        ::combobox::setValue $widgets(this) [set $variable]
-                    }
-                    trace variable $variable w \
-                            [list ::combobox::vTrace $widgets(this)]
-                }
-            }
+	    -value {
+		::combobox::setValue $widgets(this) $newValue
+	    }
 
-            -value {
-                ::combobox::setValue $widgets(this) $newValue
-            }
+	    -width {
+		$widgets(entry) configure -width $newValue
+		$widgets(listbox) configure -width $newValue
+	    }
 
-            -width {
-                $widgets(entry) configure -width $newValue
-                $widgets(listbox) configure -width $newValue
-            }
+	    -xscrollcommand {
+		$widgets(entry) configure -xscrollcommand $newValue
+	    }
 
-            -xscrollcommand {
-                $widgets(entry) configure -xscrollcommand $newValue
-            }
-
-            default {
-                error "unknown option \"$option\""
-            }
-        }
+	    default {
+		error "unknown option \"$option\""
+	    }
+	}
     }
 }
 
-# this proc is called whenever the user changes the value of
+# this proc is called whenever the user changes the value of 
 # the -textvariable associated with a widget
 proc ::combobox::vTrace {w args} {
     upvar ::combobox::${w}::widgets widgets
@@ -6295,7 +6439,7 @@ proc ::combobox::setValue {w newValue {index -1}} {
     # if the command somehow fails.
     set oldValue $newValue
 
-    # call the associated command. The proc will handle whether or
+    # call the associated command. The proc will handle whether or 
     # not to actually call it, and with what args
     callCommand $w $newValue
 }
@@ -6304,13 +6448,13 @@ proc ::combobox::setValue {w newValue {index -1}} {
 proc ::combobox::callCommand {w newValue} {
     upvar ::combobox::${w}::widgets widgets
     upvar ::combobox::${w}::options options
-
+    
     # call the associated command, if defined and -commandstate is
     # set to "normal"
     if {$options(-commandstate) == "normal" && \
-            [string length $options(-command)] > 0} {
-        set args [list $widgets(this) $newValue]
-        uplevel \#0 $options(-command) $args
+	    [string length $options(-command)] > 0} {
+	set args [list $widgets(this) $newValue]
+	uplevel \#0 $options(-command) $args
     }
 }
 
@@ -6319,9 +6463,9 @@ proc ::combobox::callCommand {w newValue} {
 # do the right thing if the string is "yes", "no", "true", 1, etc
 proc ::combobox::getBoolean {value {errorValue 1}} {
     if {[catch {expr {([string trim $value])?1:0}} res]} {
-        return $errorValue
+	return $errorValue
     } else {
-        return $res
+	return $res
     }
 }
 
@@ -6330,10 +6474,10 @@ proc ::combobox::getBoolean {value {errorValue 1}} {
 # handy...
 proc ::combobox::widgetName {w} {
     while {$w != "."} {
-        if {[winfo class $w] == "Combobox"} {
-            return $w
-        }
-        set w [winfo parent $w]
+	if {[winfo class $w] == "Combobox"} {
+	    return $w
+	}
+	set w [winfo parent $w]
     }
     error "internal error: $w is not a child of a combobox"
 }
