@@ -1,9 +1,9 @@
 #!/bin/sh
 #-*-tcl-*-
 # the next line restarts using wish \
-exec wish "$0" ${1+"$@"}
+exec wish "$0" -- ${1+"$@"}
 
-# $Id: tkdiff,v 1.4 2003-01-12 20:19:12 klassa Exp $
+# $Id: tkdiff,v 1.5 2003-01-12 20:20:49 klassa Exp $
 
 ###############################################################################
 #
@@ -56,7 +56,7 @@ wm withdraw .
 
 # set a couple o' globals that we might need sooner than later
 set g(name) "TkDiff"
-set g(version) "3.00"
+set g(version) "3.01"
 set g(nativeMenus) 1
 
 # ok, I'll admit -- this is a personal preference. I suppose I ought to
@@ -406,7 +406,7 @@ proc filterCRCRLF {file} {
     fconfigure $inp -translation binary
     fconfigure $out -translation binary
     set CR [format %c 13]
-    while ![eof $inp] {
+    while {![eof $inp]} {
         set line [gets $inp]
         if {[string length $line] && ![eof $inp]} {
             regsub -all "$CR$CR" $line $CR line
@@ -424,7 +424,7 @@ proc filterCRCRLF {file} {
 ###############################################################################
 
 proc min {a b} {
-    return [expr $a < $b ? $a : $b]
+    return [expr {$a < $b ? $a : $b}]
 }
 
 ###############################################################################
@@ -432,7 +432,7 @@ proc min {a b} {
 ###############################################################################
 
 proc max {a b} {
-    return [expr $a > $b ? $a : $b]
+    return [expr {$a > $b ? $a : $b}]
 }
 
 ###############################################################################
@@ -693,6 +693,7 @@ proc get-file-rev {f index {r ""}} {
         set finfo(lbl,$index) "$f (SCCS $rev)"
         die-unless "exec $cmd get -p $sccsopt $f" $finfo(pth,$index)
 
+
      } elseif {[file isdirectory [file join $dirname RCS]]} {
         set cmd "co"
         if {$tcl_platform(platform) == "windows"} {append cmd ".exe"}
@@ -776,6 +777,9 @@ proc init-files {} {
             }
             "^-conflict$" {
                 set conflict 1
+            }
+            "^-" {
+                append opts(diffcmd) " $arg "
             }
             default {
                 incr pths
@@ -2090,10 +2094,10 @@ proc map-move-thumb {y1 y2} {
     set y1 [expr {int(($y1 * $g(mapheight)) - 2)}]
     if {$y1 < 0} {set y1 0}
 
-    set y2 [expr $y1 + $thumbheight]
+    set y2 [expr {$y1 + $thumbheight}]
     if {$y2 > $g(mapheight)} {
         set y2 $g(mapheight)
-        set y1 [expr $y2 - $thumbheight]
+        set y1 [expr {$y2 - $thumbheight}]
     }
 
     set dx1 [expr {$x1 + 1}]
@@ -2870,7 +2874,7 @@ proc diff-size {pos version {screen 0}} {
     }
 #    scan $g($diff,$pos) "%s %d %d %d %d %s" \
 #        thisdiff s(1) e(1) s(2) e(2) type
-    foreach {thisdiff s(1) e(1) s(2) e(2) type} $g($diff,$pos)) {}
+    foreach {thisdiff s(1) e(1) s(2) e(2) type} $g($diff,$pos) {}
 
     set lines [expr {$e($version) - $s($version) + 1}]
     if {$type == "d" && $version == 2} {incr lines -1}
@@ -3010,7 +3014,12 @@ proc merge-read-file {} {
     global finfo
     global w
 
+    # hack; need to find a cleaner way...
+    catch { destroy .merge }
+    merge-create-window
+
     set hndl [open "$finfo(pth,1)" r]
+    $w(mergeText) configure -state normal
     $w(mergeText) delete 1.0 end
     $w(mergeText) insert 1.0 [read $hndl]
     close $hndl
@@ -3020,6 +3029,7 @@ proc merge-read-file {} {
     if {![regexp {\.0$} [$w(mergeText) index "end-1lines lineend"]]} {
         $w(mergeText) insert end "\n"
     }
+    $w(mergeText) configure -state disabled
 }
 
 ###############################################################################
@@ -3040,16 +3050,21 @@ proc merge-write-file {} {
 # Add a mark where each diff begins and tag diff regions so they are visible.
 # Assumes text is initially the bare original (Left) version.
 ###############################################################################
-
 proc merge-add-marks {} {
     global g
     global w
 
+    # mark all lines first, so selection won't mess up line numbers
     for {set i 1} {$i <= $g(count)} {incr i} {
         foreach [list thisdiff s1 e1 s2 e2 type] $g(pdiff,$i) {}
         set delta [expr {$type == "a" ? 1 : 0}]
         $w(mergeText) mark set mark$i $s1.0+${delta}lines
         $w(mergeText) mark gravity mark$i left
+    }
+
+    # select merged lines
+    for {set i 1} {$i <= $g(count)} {incr i} {
+        foreach [list thisdiff s1 e1 s2 e2 type] $g(pdiff,$i) {}
 
         if {$g(merge$i) == 1} {
             # (If it's an insert it's not visible)
@@ -3087,7 +3102,9 @@ proc merge-select-version {pos oldversion newversion} {
 
     catch {
         set oldlines [diff-size $pos $oldversion]
+        $w(mergeText) configure -state normal
         $w(mergeText) delete mark$pos "mark${pos}+${oldlines}lines"
+        $w(mergeText) configure -state disabled
     }
 
     # Screen coordinates
@@ -3101,7 +3118,9 @@ proc merge-select-version {pos oldversion newversion} {
     set newtext [$newTextWin get $s($newversion).0 \
                      $s($newversion).0+${newlines}lines]
     # Insert it
+    $w(mergeText) configure -state normal
     $w(mergeText) insert mark$pos $newtext diff
+    $w(mergeText) configure -state disabled
     if {$pos == $g(pos)} {
         $w(mergeText) tag add currtag mark$pos "mark${pos}+${newlines}lines"
     }
@@ -3570,10 +3589,19 @@ proc update-display {} {
         $w(popupMenu) entryconfigure "Center*" -state normal
         $w(viewMenu) entryconfigure "Center*" -state normal
 
+        $w(mergeChoice1)     configure -state normal
+        $w(mergeChoice2)     configure -state normal
+        $w(mergeChoiceLabel) configure -state normal
+
+
     } else {
         $w(centerDiffs) configure -state disabled
         $w(popupMenu) entryconfigure "Center*" -state disabled
         $w(viewMenu) entryconfigure "Center*" -state disabled
+
+        $w(mergeChoice1)     configure -state disabled
+        $w(mergeChoice2)     configure -state disabled
+        $w(mergeChoiceLabel) configure -state disabled
     }
 }
 
@@ -3674,7 +3702,12 @@ proc wipe-window {} {
         $w(${mod}CB) delete 1.0 end
     }
 
-    catch {$w(mergeText) delete 1.0 end }
+    catch {
+        $w(mergeText) configure -state normal
+        $w(mergeText) delete 1.0 end
+        eval $w(mergeText) tag delete [$w(mergeText) tag names]
+        $w(mergeText) configure -state disabled
+    }
 
     if {[string length $g(destroy)] > 0} {
         eval $g(destroy)
@@ -3796,7 +3829,7 @@ proc remark-diffs {} {
 
     # delete all known tags.
     foreach window [list $w(LeftText) $w(LeftInfo) $w(LeftCB) \
-            $w(RightText) $w(RightInfo) $w(RightCB)] {
+            $w(RightText) $w(RightInfo) $w(RightCB) $w(mergeText)] {
         eval $window tag delete [$window tag names]
     }
 
@@ -3819,6 +3852,12 @@ proc remark-diffs {} {
         eval $widget tag configure - $opts(-)
         eval $widget tag configure ! $opts(!)
     }
+
+    # ... and the merge text window
+    foreach tag {difftag currtag} {
+        eval $w(mergeText) tag configure $tag $opts($tag)
+    }
+
 
     # now, reapply the tags to all the diff regions
     for {set i 1} {$i <= $g(count)} {incr i} {
@@ -3858,7 +3897,7 @@ proc rediff {} {
 
     # Read the files into their respective widgets & add line numbers.
      foreach mod {1 2} {
-        if {$mod == 1} {set text $w(LeftText)} {set text $w(RightText)}
+        if {$mod == 1} {set text $w(LeftText)} else {set text $w(RightText)}
         show-info "reading $finfo(pth,$mod)..."
         if {[catch {set hndl [open "$finfo(pth,$mod)" r]}]} {
             fatal-error "Failed to open file: $finfo(pth,$mod)"
@@ -4241,8 +4280,12 @@ proc newDiff {command args} {
             # n.b.: args(0) is dialog title; args(1) is entry widget
             set title [lindex $args 0]
             set widget [lindex $args 1]
+            set foo [$widget get]
+            set initialdir [file dirname $foo]
+            set initialfile [file tail $foo]
             set filename [tk_getOpenFile -title $title \
-                    -initialfile [$widget get]]
+                    -initialfile $initialfile \
+                    -initialdir  $initialdir]
             if {[string length $filename] > 0} {
                 $widget delete 0 end
                 $widget insert 0 $filename
@@ -4643,20 +4686,20 @@ proc do-usage {} {
 <itl>$g(name)</itl> may be started in any of the following ways:
 
     Interactive selection of files to compare:
-<cmp>   tkdiff</cmp>
+<cmp>	tkdiff</cmp>
 
     Plain files:
-<cmp>   tkdiff FILE1 FILE2</cmp>
+<cmp>	tkdiff FILE1 FILE2</cmp>
 
     Plain file with conflict markers:
-<cmp>   tkdiff -conflict FILE</cmp>
+<cmp>	tkdiff -conflict FILE</cmp>
 
     Source control RCS/CVS/SCCS/PVCS/Perforce:
-<cmp>   tkdiff FILE    </cmp>(same as -r)
-<cmp>   tkdiff -r FILE
-        tkdiff -rREV FILE
-        tkdiff -rREV -r FILE
-        tkdiff -rREV1 -rREV2 FILE</cmp>
+<cmp>	tkdiff FILE	</cmp>(same as -r)
+<cmp>	tkdiff -r FILE
+	tkdiff -rREV FILE
+	tkdiff -rREV -r FILE
+	tkdiff -rREV1 -rREV2 FILE</cmp>
 
 $g(name) detects and supports RCS, CVS and SCCS by looking for a directory with the same name.  It detects and supports PVCS by looking for a vcs.cfg file. It detects and supports Perforce by looking for an environment variable named P4CLIENT.
 
@@ -4671,6 +4714,8 @@ To merge a file with conflict markers generated by "<cmp>merge</cmp>", "<cmp>cvs
 Note that "<cmp>tkdiff FILE</cmp>" is the same as "<cmp>tkdiff -r FILE</cmp>".  The CVS version has priority, followed by the SCCS version -- i.e. if a CVS directory is present, CVS; if not and an SCCS directory is present, SCCS is assumed; otherwise, if a CVS.CFG file is found, PVCS is assumed; otherwise RCS is assumed. If none of the above apply and the Perforce environment variable P4CLIENT is found, perforce is used.
 
 Note also that the "<cmp>tkdiff -rREV -r FILE</cmp>" form results in a comparison between revision <cmp>REV</cmp> and the head of the RCS, CVS, SCCS, PVCS or Perforce revision tree.
+
+Note further that anything with a leading dash that isn't recognized as a $g(name) option is passed through to diff.  This permits you to temporarily alter the way diff is called, without resorting to a change in your preferences file.
 }
 
     set text [subst -nobackslashes -nocommands $text]
@@ -5032,7 +5077,7 @@ proc put-text {tw txt} {
 
         set oldend [$tw index end]
 
-        $tw insert end [string range $t 0 [expr $start - 2]]
+        $tw insert end [string range $t 0 [expr {$start - 2}]]
 
         purge-all-tags $tw $oldend insert
 
@@ -5050,7 +5095,7 @@ proc put-text {tw txt} {
             set tags($keyword) [$tw index insert]
         }
 
-        set t [string range $t [expr $end + 2] end]
+        set t [string range $t [expr {$end + 2}] end]
     }
 
     set oldend [$tw index end]
@@ -5232,6 +5277,7 @@ namespace eval ::combobox {
     set count 0
     while {[winfo exists $sbtest]} {
         set sbtest ".sbtest$count"
+        incr count
     }
     scrollbar $sbtest
     set sb_width [winfo reqwidth $sbtest]
