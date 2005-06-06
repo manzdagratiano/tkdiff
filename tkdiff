@@ -865,8 +865,13 @@ proc get-file-rev {f index {r ""}} {
  	if {$tcl_platform(platform) == "windows"} {
  	    append cmd ".exe"
  	}
- 	set finfo(lbl,$index) "$f (SVN $rev)"
- 	die-unless "exec $cmd cat $svnopt $f" $finfo(pth,$index)
+        if {"$r" == "" || "$rev" == "rBASE"} {
+            set finfo(lbl,$index) "$f (SVN BASE)"
+            die-unless "exec cat $dirname/.svn/text-base/$tailname.svn-base" $finfo(pth,$index)
+        } else {
+            set finfo(lbl,$index) "$f (SVN $rev)"
+            die-unless "exec $cmd cat $svnopt $f" $finfo(pth,$index)
+        }
     } elseif {[file isdirectory [file join $dirname SCCS]]} {
         if {[sccs-is-bk]} {
             set cmd "bk"
