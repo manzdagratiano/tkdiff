@@ -7255,6 +7255,10 @@ The name of a directory for files that are temporarily created while $g(name) is
 The name of an external editor program to use when editing a file (ie: when you select "Edit" from the popup menu). If this value is blank, a simple editor built in to $g(name) will be used. For\
       windows users you might want to set this to "notepad". Unix users may want to set this to "xterm -e vi" or perhaps "gnuclient". When run, the name of the file to edit will be appened as the\
       last argument on the command line.
+If the supplied string contains the string "\$file", it's treated as a whole command line, where the following parameters can be used:
+  \$file: the file of your choice
+  \$line: the starting line of the current diff
+For example, in the case of NEdit or Emacs you can use "nc -line \$line \$file" and "emacs +\$line \$file" respectively.
 
 <bld>$pref(geometry)</bld>
 
@@ -7391,7 +7395,7 @@ This defines the number of characters for each tabstop in the main display windo
     # you edit the above text, be sure to properly escape any dollar
     # signs that are not meant to be treated as a variable reference
 
-    set text [subst -nobackslashes -nocommands $text]
+    set text [subst -nocommands $text]
     do-text-info .help-preferences $title $text
 }
 
@@ -7495,6 +7499,11 @@ proc do-edit {} {
     } else {
         if {[string length [string trim $opts(editor)]] == 0} {
             simpleEd open $finfo(pth,$fileno)
+	} elseif {[regexp "\\\$file" "$opts(editor)"] == 1} {
+	    set line [lindex [extract $g(currdiff)] [expr {($fileno-1)*2+1}]]
+	    set file $finfo(pth,$fileno)
+	    eval set commandline \"$opts(editor) &\"
+	    eval exec $commandline
         } else {
             eval exec $opts(editor) "{$finfo(pth,$fileno)}" &
         }
