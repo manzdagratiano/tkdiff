@@ -1,0 +1,19 @@
+Minimal:
+frink -e -I -N -n -z
+frink -a -c4 -e -l -i4 -I -N -n -p1 -z
+
+# -a      : put spaces around -command code in {} and "". (default = OFF)
+# -c <n>  : set further indent for continuations to n. default = 2
+# -d      : remove braces in certain (safe) circumstances (default = OFF)
+# -e      : produce "else". (default = OFF)
+# -g      : indent switch cases. (default = OFF)
+# -I      : Treate elseif and else the same way. (default = OFF)
+# -N      : do not put a newline out before elseif. (default = OFF)
+# -i <n>  : set indent for each level to n. default = 4
+# -l      : try for one-liners (not yet implemented)
+# -M      : warn if there is no -- on a switch statement. default = OFF
+# -n      : do not generate tab characters (default = OFF)
+# -p <v>  : If v is a number produce that many blank lines after each
+#             proc definition,
+# -U      : hardline checking enabled (default = OFF)
+# -z      : put a single space before the \ character on continuations.
