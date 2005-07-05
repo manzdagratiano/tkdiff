@@ -8,7 +8,7 @@ exec wish "$0" -- ${1+"$@"}
 # TkDiff -- A graphical front-end to diff for Unix and Windows.
 # Copyright (C) 1994-1998 by John M. Klassa.
 # Copyright (C) 1999-2001 by AccuRev Inc.
-# Copyright (C) 2002-2003 by John M. Klassa.
+# Copyright (C) 2002-2005 by John M. Klassa.
 #
 # TkDiff Home Page: http://tkdiff.sourceforge.net
 #
@@ -29,7 +29,7 @@ exec wish "$0" -- ${1+"$@"}
 # Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
 ###############################################################################
 
-package require Tk
+package require Tk 8.0
 
 # Change to t for trace info on stderr
 set g(debug) f
@@ -181,7 +181,7 @@ array set g {
     initOK          0
     mapborder       0
     mapheight       0
-    mergefile       "tkdiff-merge.out"
+    mergefile       ""
     returnValue     0
     showmerge       0
     started         0
@@ -374,8 +374,7 @@ proc fatal-error {msg} {
 
     if {$g(started)} {
         tk_messageBox -title "Error" -icon error -type ok -message $msg
-        # If the GUI is up, do we really want to exit?
-        #exit 2
+        do-exit 2
     } else {
         puts stderr $msg
         del-tmp
@@ -633,7 +632,7 @@ proc popup-merge {{writeproc merge-write-file}} {
 # Returns the names of the two temporary files and the names of the
 # files that were merged
 ###############################################################################
-proc split-cvs-conflicts {name} {
+proc split-conflictfile {name} {
     debug-info "conflicts ($name)"
     global g opts
 
@@ -772,6 +771,7 @@ proc get-file-rev {f index {r ""}} {
             append cmd ".exe"
         }
         set finfo(lbl,$index) "$f (CVS $rev)"
+        debug-info "  Setting lbl $finfo(lbl,$index)"
         die-unless "exec $cmd update -p $cvsopt \"$f\"" "\"$finfo(pth,$index)\""
     } elseif {[file isdirectory [file join $dirname .svn]]} {
         set cmd "svn"
@@ -780,10 +780,12 @@ proc get-file-rev {f index {r ""}} {
         }
         if {"$r" == "" || "$rev" == "rBASE"} {
             set finfo(lbl,$index) "$f (SVN BASE)"
+            debug-info "  Setting lbl $finfo(lbl,$index)"
             die-unless "exec cat $dirname/.svn/text-base/$tailname.svn-base" \
               $finfo(pth,$index)
         } else {
             set finfo(lbl,$index) "$f (SVN $rev)"
+            debug-info "  Setting lbl $finfo(lbl,$index)"
             die-unless "exec $cmd cat $svnopt $f" $finfo(pth,$index)
         }
     } elseif {[file isdirectory [file join $dirname SCCS]]} {
@@ -791,8 +793,10 @@ proc get-file-rev {f index {r ""}} {
             set cmd "bk"
             set opt $bkopt
             set finfo(lbl,$index) "$f (bitkeeper $rev)"
+            debug-info "  Setting lbl $finfo(lbl,$index)"
         } else {
             set finfo(lbl,$index) "$f (SCCS $rev)"
+            debug-info "  Setting lbl $finfo(lbl,$index)"
             set opt $sccsopt
             set cmd "sccs"
         }
@@ -808,6 +812,7 @@ proc get-file-rev {f index {r ""}} {
             append cmd ".exe"
         }
         set finfo(lbl,$index) "$f (RCS $rev)"
+        debug-info "  Setting lbl $finfo(lbl,$index)"
         die-unless "exec $cmd -p$rcsopt \"$f\"" "\"$finfo(pth,$index)\""
 
     } elseif {[file exists [file join $dirname $tailname,v]]} {
@@ -816,6 +821,7 @@ proc get-file-rev {f index {r ""}} {
             append cmd ".exe"
         }
         set finfo(lbl,$index) "$f (RCS $rev)"
+        debug-info "  Setting lbl $finfo(lbl,$index)"
         die-unless "exec $cmd -p$rcsopt \"$f\"" \""$finfo(pth,$index)\""
 
     } elseif {[file exists [file join $dirname vcs.cfg]]} {
@@ -824,6 +830,7 @@ proc get-file-rev {f index {r ""}} {
             append cmd ".exe"
         }
         set finfo(lbl,$index) "$f (PVCS $rev)"
+        debug-info "  Setting lbl $finfo(lbl,$index)"
         die-unless "exec $cmd -p $pvcsopt \"$f\"" "\"$finfo(pth,$index)\""
         filterCRCRLF $finfo(pth,$index)
 
@@ -833,6 +840,7 @@ proc get-file-rev {f index {r ""}} {
             append cmd ".exe"
         }
         set finfo(lbl,$index) "$f (Perforce $rev)"
+        debug-info "  Setting lbl $finfo(lbl,$index)"
         die-unless "exec $cmd print -q \"$p4file\"" "\"$finfo(pth,$index)\""
 
     } elseif {[info exists ::env(ACCUREV_BIN)]} {
@@ -841,11 +849,13 @@ proc get-file-rev {f index {r ""}} {
             append cmd ".exe"
         }
         set finfo(lbl,$index) "$f ($acrev)"
+        debug-info "  Setting lbl $finfo(lbl,$index)"
         die-unless "exec $cmd cat $acopt \"$f\"" "\"$finfo(pth,$index)\""
     } elseif {[info exists ::env(CLEARCASE_ROOT)]} {
         set cmd "cleartool"
 
         set finfo(lbl,$index) "$f (ClearCase $rev)"
+        debug-info "  Setting lbl $finfo(lbl,$index)"
 
         catch {exec $cmd ls -s $f} ctls
 
@@ -883,7 +893,7 @@ proc get-file-rev {f index {r ""}} {
 
         if {$predecessor != ""} {
             set finfo(pth,$index) $predecessor
-            set finfo(lbl,$index) $predecessor
+            debug-info "  Setting lbl from predecessor $finfo(lbl,$index)"
         } else {
             puts "Couldn't deal with $f, exiting..."
             exit
@@ -892,9 +902,10 @@ proc get-file-rev {f index {r ""}} {
         fatal-error "File '$f' is not part of a revision control system"
     }
     # Header above each file - if user has specified -L, override
-    set finfo(lbl,$index) "$f"
+    #debug-info "  $finfo(lbl,$index)"
     if {$finfo(userlbl,$index) != {}} {
         set finfo(lbl,$index) $finfo(userlbl,$index)
+        debug-info "  User label: $finfo(lbl,$index)"
     }
 }
 
@@ -931,8 +942,10 @@ proc get-file {f index} {
     # Header above each file - use filename unless
     # user has specified one with -L
     set finfo(lbl,$index) "$f"
+    debug-info "  Setting lbl  $finfo(lbl,$index)"
     if {$finfo(userlbl,$index) != {}} {
         set finfo(lbl,$index) $finfo(userlbl,$index)
+        debug-info "  User label: $finfo(lbl,$index)"
     }
     set finfo(pth,$index) "$f"
     set finfo(tmp,$index) 0
@@ -1025,13 +1038,35 @@ proc commandline {} {
     # Add our counters to the global array
     # Now check how many revision and file args we have.
     debug-info "  $pths files, $revs revisions"
+    # Maybe adjustment is needed
+    if {$revs == 1 && $pths == 0} {
+       # tkdiff -r FILE; same as tkdiff FILE
+       set finfo(pths,1) $finfo(revs,1)
+       set finfo(f,1) $finfo(revs,1)
+       incr pths 1
+       incr revs -1
+       unset finfo(revs,1)
+    } elseif {$revs == 2 && $pths == 0} {
+       # tkdiff -rREV -r FILE; same as tkdiff -rREV FILE
+       set finfo(pths,1) $finfo(revs,2)
+       set finfo(f,1) $finfo(revs,2)
+       incr pths 1
+       incr revs -1
+       unset finfo(revs,2)
+    }
+    # What have we got now?
+    debug-info "  $pths files, $revs revisions"
     if {$revs == 0 && $pths == 0} {
         # Return "empty" flag, and we'll do a pop-up
         return 1
-    } elseif {$revs > 1 && $pths > 1} {
-        puts stderr "Error: you gave me $pths files and $revs revisions"
+    } elseif {$revs > 1 && $pths != 1} {
+        puts stderr "Error: you specified $pths file(s) and $revs revision(s)"
         do-usage cline
         exit 1
+    }
+
+    if {$g(mergefile) != ""} {
+      set g(mergefileset) 1
     }
     return 0
 }
@@ -1076,10 +1111,12 @@ proc assemble-args {} {
             ############################################################
             # tkdiff -conflict FILE
             ############################################################
-            set files [split-cvs-conflicts "$finfo(f,1)"]
+            set files [split-conflictfile "$finfo(f,1)"]
             if {[get-file [lindex "$files" 0] 1]} {return}
             if {[get-file [lindex "$files" 1] 2]} {return}
-            # override -L - we want revisions not filenames
+            # A conflict file may come from merge, cvs, or vmrg.  The
+            # names of the files/revisions depend on how it was made and
+            # are taken from the <<<<<<< and >>>>>>> lines inside it.
             set finfo(lbl,1) [lindex "$files" 2]
             set finfo(lbl,2) [lindex "$files" 3]
         } else {
@@ -1100,17 +1137,7 @@ proc assemble-args {} {
             ############################################################
             set f $finfo(f,1)
             get-file-rev "$f" 1 "$finfo(revs,1)"
-            if {[get-file "$f" 1]} {return}
-
-        } elseif {$revs == 2 && $pths == 0} {
-            ############################################################
-            #  tkdiff -rREV -r FILE
-            #     For CVS, that compares -rREV to HEAD
-            # same as tkdiff -rREV FILE
-            ############################################################
-            set f $finfo(revs,2)
-            get-file-rev "$f" 1 "$finfo(revs,1)"
-            get-file-rev "$f" 2
+            if {[get-file "$f" 2]} {return}
 
         } elseif {$revs == 0 && $pths == 2} {
             ############################################################
@@ -1139,18 +1166,8 @@ proc assemble-args {} {
             get-file-rev "$f" 1
             if {[get-file "$f" 2]} {return}
 
-        } elseif {$revs == 1 && $pths == 0} {
-            ############################################################
-            # tkdiff -r FILE
-            #     For CVS, that compares current to HEAD
-            # same as  tkdiff FILE
-            ############################################################
-            set f $finfo(revs,1)
-            get-file-rev "$f" 1
-            if {[get-file "$f" 2]} {return}
-
         } else {
-            do-error "Error: you specified $pths files and $revs revisions"
+            do-error "Error: you specified $pths file(s) and $revs revision(s)"
             do-usage gui
             tkwait window .usage
             return 1
@@ -1158,6 +1175,7 @@ proc assemble-args {} {
     }
 
     set finfo(title) "[file tail $finfo(lbl,1)] vs. [file tail $finfo(lbl,2)]"
+    debug-info "  Setting title $finfo(title)"
     set rootname [file rootname $finfo(pth,1)]
     #    set path          [file dirname          $finfo(pth,1)]
     set path [pwd]
@@ -1246,7 +1264,7 @@ proc create-display {} {
     apply 0
 
     # Make sure temporary files get deleted
-    bind . <Destroy> {del-tmp}
+    #bind . <Destroy> {del-tmp}
 
     # other misc. bindings
     common-navigation $w(LeftText) $w(LeftInfo) $w(LeftCB) $w(RightText) \
@@ -1267,6 +1285,8 @@ proc create-display {} {
     wm deiconify .
     focus -force $w(RightText)
     update idletasks
+    # Need this to make the pane-resizing behave
+    grid propagate $w(client) f
 }
 
 ###############################################################################
@@ -1383,6 +1403,36 @@ proc popupMenu {command args} {
     }
 }
 
+# Resize the text windows relative to each other.  The 8.4 method works
+# much better.
+proc pane_drag {win x} {
+    global w
+    global finfo
+    global tk_version
+
+    set relX [expr $x - [winfo rootx $win]]
+    set maxX [winfo width $win]
+    set frac [expr int((double($relX) / $maxX) * 100)]
+    if {$tk_version < 8.4} {
+      if {$frac < 15} { set frac 15 }
+      if {$frac > 85} { set frac 85 }
+      #debug-info "frac $frac"
+      set L $frac
+      set R [expr 100 - $frac]
+      .client.leftlabel configure -width [expr $L * 2]
+      .client.rightlabel configure -width [expr $R * 2]
+    } else {
+      if {$frac < 5} { set frac 5 }
+      if {$frac > 95} { set frac 95 }
+      #debug-info "frac $frac"
+      set L $frac
+      set R [expr 100 - $frac]
+      grid columnconfigure $win 0 -weight $L
+      grid columnconfigure $win 2 -weight $R
+    }
+    #debug-info " new: $L $R"
+}
+
 ###############################################################################
 # build the main client display (the text widgets, scrollbars, that
 # sort of fluff)
@@ -1393,6 +1443,7 @@ proc build-client {} {
     global w
     global opts
     global map
+    global tk_version
 
     frame $w(client) -bd 2 -relief flat
 
@@ -1432,9 +1483,10 @@ proc build-client {} {
 
     # we'll create each widget twice; once for the left side
     # and once for the right.
-    label $w(LeftLabel) -bd 1 -relief flat -textvariable finfo(lbl,1)
-
-    label $w(RightLabel) -bd 1 -relief flat -textvariable finfo(lbl,2)
+    debug-info "  Assigning labels to headers"
+    scan $opts(geometry) "%dx%d" width height
+    label $w(LeftLabel) -bd 1 -relief flat -textvariable finfo(lbl,1) -width $width
+    label $w(RightLabel) -bd 1 -relief flat -textvariable finfo(lbl,2) -width $width
 
     # this holds the text widgets and the scrollbars. The reason
     # for the frame is purely for aesthetics. It just looks
@@ -1456,7 +1508,6 @@ proc build-client {} {
     scrollbar $w(RightVSB) -borderwidth 1 -orient vertical -command \
       [list $w(RightText) yview]
 
-    scan $opts(geometry) "%dx%d" width height
 
     text $w(LeftText) -padx 0 -wrap none -width $width -height $height \
       -borderwidth 0 -setgrid 1 -yscrollcommand [list vscroll-sync \
@@ -1562,10 +1613,10 @@ proc build-client {} {
     bind $w(mapCanvas) <Button1-Motion> [list handleMapEvent B1-Motion %y]
     bind $w(mapCanvas) <ButtonRelease-1> [list handleMapEvent B1-Release %y]
 
-    # this is a dummy frame we're going to create that's the
-    # same height as a horizontal scrollbar.
-    frame $w(client).dummyFrame -borderwidth 0 -height [winfo reqheight \
-      $w(LeftHSB)]
+    # this is a grip for resizing the sides relative to each other.
+    button $w(client).grip -borderwidth 3 -relief raised \
+      -cursor sb_h_double_arrow -image resize
+    bind $w(client).grip <B1-Motion> {pane_drag $w(client) %X}
 
     # use grid to manage the widgets in the left side frame
     grid $w(LeftVSB) -row 0 -column 0 -sticky ns
@@ -1605,7 +1656,7 @@ proc build-client {} {
     grid $w(RightLabel) -row 0 -column 2 -sticky ew
     grid $leftFrame -row 1 -column 0 -sticky nsew -rowspan 2
     grid $map -row 1 -column 1 -stick ns
-    grid $w(client).dummyFrame -row 2 -column 1
+    grid $w(client).grip -row 2 -column 1
     grid $rightFrame -row 1 -column 2 -sticky nsew -rowspan 2
 
     grid rowconfigure $w(client) 0 -weight 0
@@ -1613,9 +1664,14 @@ proc build-client {} {
     grid rowconfigure $w(client) 2 -weight 0
     grid rowconfigure $w(client) 3 -weight 0
 
-    grid columnconfigure $w(client) 0 -weight 1
+    if {$tk_version < 8.4} {
+      grid columnconfigure $w(client) 0 -weight 1
+      grid columnconfigure $w(client) 2 -weight 1
+    } else {
+      grid columnconfigure $w(client) 0 -weight 100 -uniform a
+      grid columnconfigure $w(client) 2 -weight 100 -uniform a
+    }
     grid columnconfigure $w(client) 1 -weight 0
-    grid columnconfigure $w(client) 2 -weight 1
 
     # this adjusts the variable g(activeWindow) to be whatever text
     # widget has the focus...
@@ -1968,6 +2024,7 @@ proc show-find {} {
     after idle focus $w(findEntry)
 }
 
+
 ###############################################################################
 # do the "Edit->Copy" functionality, by copying the current selection
 # to the clipboard
@@ -2080,7 +2137,7 @@ proc build-menubar {} {
     # Mark menu...
     menu $markMenu
     $markMenu add command -label "Mark Current Diff" -command [list diffmark \
-      set] -underline 0
+      mark] -underline 0
     $markMenu add command -label "Clear Current Diff Mark" -command \
       [list diffmark clear] -underline 0
 
@@ -2405,8 +2462,8 @@ proc build-toolbar {} {
     label $toolbar.bkmklbl -text "Mark:" -pady 0 -bd 2 -relief groove
 
     toolbutton $toolbar.bkmkset_im -image markSetImage -command \
-      [list diffmark set] -bd 1
-    toolbutton $toolbar.bkmkset_tx -text "Set" -command [list diffmark set] \
+      [list diffmark mark] -bd 1
+    toolbutton $toolbar.bkmkset_tx -text "Set" -command [list diffmark mark] \
       -bd 1 -pady 1
 
     toolbutton $toolbar.bkmkclear_im -image markClearImage -command \
@@ -2553,6 +2610,7 @@ proc handleMapEvent {event y} {
     global opts
     global w
     global g
+    #debug-info "handleMapEvent $event $y"
 
     switch -- $event {
     B1-Press {
@@ -2578,7 +2636,6 @@ proc handleMapEvent {event y} {
             }
         }
     B1-Release {
-            debug-info "show-info from B1-Release"
             show-info ""
             set ty1 [lindex $g(thumbBbox) 1]
             set ty2 [lindex $g(thumbBbox) 3]
@@ -2844,7 +2901,7 @@ proc diffmark {option {diff -1}} {
     activate {
             move $diff 0 1
         }
-    set {
+    mark {
             if {![winfo exists $widget]} {
                 toolbutton $widget -text "\[$diff\]" -command [list diffmark \
                   activate $diff] -bd 1 -pady 1
@@ -2852,7 +2909,6 @@ proc diffmark {option {diff -1}} {
                 set g(tooltip,$widget) "Diff Marker: Jump to diff record \
                   number $diff"
             }
-            debug-info "   ...update-display from diffmark (set)"
             update-display
         }
     clear {
@@ -2860,7 +2916,6 @@ proc diffmark {option {diff -1}} {
                 destroy $widget
                 catch {unset g(tooltip,$widget)}
             }
-            debug-info "   ...update-display from diffmark (clear)"
             update-display
         }
     clearall {
@@ -2871,7 +2926,6 @@ proc diffmark {option {diff -1}} {
                     catch {unset g(tooltip,$widget)}
                 }
             }
-            debug-info "   ...update-display from diffmark (clearall)"
             update-display
         }
     }
@@ -3235,7 +3289,9 @@ proc apply {{remark 0}} {
     global pref
     global screenWidth
     global screenHeight
+    global tk_version
 
+    grid propagate $w(client) t
     if {! [file isdirectory $tmpopts(tmpdir)]} {
         do-error "Invalid temporary directory $tmpopts(tmpdir)"
     }
@@ -3262,25 +3318,47 @@ proc apply {{remark 0}} {
     set gridsize [wm grid .]
     set gridx [lindex $gridsize 2]
     set gridy [lindex $gridsize 3]
+    debug-info " wm grid is $gridx x $gridy"
+
     set maxunitsx [expr {$screenWidth / $gridx}]
     set maxunitsy [expr {$screenHeight / $gridy}]
-    set halfmax [expr {($maxunitsx - 24) / 2}]
+    debug-info "   max X is $maxunitsx units"
+    debug-info "   max Y is $maxunitsy units"
+    set halfmax [expr {$maxunitsx / 2}]
 
     if {$tmpopts(geometry) == "" || [catch {scan $tmpopts(geometry) \
       "%dx%d" width height} result]} {
         do-error "invalid geometry setting: $tmpopts(geometry)"
         return
     }
-    #debug-info "width $width  halfmax $halfmax"
-    if {$width > $halfmax} {
-        set width $halfmax
+    debug-info " width $width  halfmax $halfmax"
+    set maxw [expr {$halfmax - 18}]
+    debug-info " maxw $maxw"
+    if {$width > $maxw} {
+        set width $maxw
     }
+    # re-center map
+    if {$tk_version < 8.4} {
+      grid columnconfigure $w(client) 0 -weight 1
+      grid columnconfigure $w(client) 2 -weight 1
+    } else {
+      grid columnconfigure $w(client) 0 -weight 100 -uniform a
+      grid columnconfigure $w(client) 2 -weight 100 -uniform a
+    }
+
     if {[catch {$w(LeftText) configure -width $width -height $height} result]} {
         do-error "invalid geometry setting: $tmpopts(geometry)"
         return
     }
     $w(RightText) configure -width $width -height $height
 
+    $w(LeftLabel) configure -width $width
+    $w(RightLabel) configure -width $width
+
+    grid forget $w(LeftLabel)
+    grid forget $w(RightLabel)
+    grid $w(LeftLabel) -row 0 -column 0 -sticky ew
+    grid $w(RightLabel) -row 0 -column 2 -sticky ew
 
     foreach tag {difftag currtag inlinetag deltag instag chgtag overlaptag} {
         foreach win [list $w(LeftText) $w(LeftInfo) $w(LeftCB) $w(RightText) \
@@ -3353,6 +3431,7 @@ proc apply {{remark 0}} {
     do-show-map
     do-show-lineview
     do-show-ignoreblanks
+    grid propagate $w(client) f
 }
 
 ###############################################################################
@@ -3813,10 +3892,10 @@ proc do-show-merge {{showMerge ""}} {
 
     if {$g(showmerge)} {
         watch-cursor
-        #if {! [winfo exists .merge]} {
+        if {! [info exists w(mergeText]} {
             merge-read-file
             merge-add-marks
-        #}
+        }
         wm deiconify .merge
         $w(mergeText) configure -state disabled
         focus -force $w(mergeText)
@@ -3847,10 +3926,9 @@ proc merge-create-window {} {
     set ry [winfo rooty .]
     set px [winfo width .]
     set py [winfo height .]
-    debug-info "  rx $rx  ry $ry  px $px  py $py"
+    #debug-info "  rx $rx  ry $ry  px $px  py $py"
     set x [expr {$rx + $px / 4}]
     set y [expr {$ry + $py / 2}]
-    puts "wm geometry $top +${x}+$y"
     wm geometry $top "+${x}+$y"
 
     wm group $top .
@@ -3937,7 +4015,9 @@ proc merge-create-window {} {
 
     common-navigation $w(mergeText)
 
-    wm withdraw $w(merge)
+    if {! $g(showmerge)} {
+        wm withdraw $w(merge)
+    }
 }
 
 ###############################################################################
@@ -4153,9 +4233,13 @@ proc merge-center {} {
 # newversion   1 or 2, new merge choice
 ###############################################################################
 proc do-merge-choice {newversion} {
+    debug-info "do-merge-choice ($newversion)"
     global g opts
     global w
 
+    if {! [info exists w(mergeText)] || ! [winfo exists $w(mergeText)]} {
+       return
+    }
     $w(mergeText) configure -state normal
     merge-select-version $g(pos) $g(merge$g(pos)) $newversion
     $w(mergeText) configure -state disabled
@@ -4507,7 +4591,7 @@ proc map-seek {y} {
 # is 0).
 ###############################################################################
 proc move {value {relative 1} {setpos 1}} {
-    debug-info "move $value $relative $setpos"
+    #debug-info "move $value $relative $setpos"
     global g
     global w
 
@@ -4538,13 +4622,13 @@ proc move {value {relative 1} {setpos 1}} {
     set g(currdiff) [set-tag $g(pos) currtag "" $setpos]
 
     # update the buttons..
-    debug-info "   ...update-display from move"
+    #debug-info "   ...update-display from move"
     update-display
 
 }
 
 proc update-display {} {
-    debug-info "update-display"
+    #debug-info "update-display"
     global g
     global w
 
@@ -4734,7 +4818,8 @@ proc center {} {
     global g
     global w
 
-    #    scan $g(scrdiff,$g(pos)) "%s %d %d %d %d %s" dummy s1 e1 s2 e2 dt
+    if {! [info exists g(scrdiff,$g(pos))]} {return}
+    #scan $g(scrdiff,$g(pos)) "%s %d %d %d %d %s" dummy s1 e1 s2 e2 dt
     foreach {dummy s1 e1 s2 e2 dt} $g(scrdiff,$g(pos)) { }
 
     # Window requested height in pixels
@@ -4931,8 +5016,8 @@ proc do-new-diff {} {
     watch-cursor
     # do the diff
     do-diff
-    restore-cursor
 
+    debug-info "   move first 1 1  from do-new-diff"
     move first 1 1
 
     #debug-info "    ...restore-cursor from do-new-diff"
@@ -5014,10 +5099,8 @@ proc remark-diffs {} {
 # Put up some informational text.
 ###############################################################################
 proc show-info {message} {
-    #debug-info "show-info ($message)"
     global g
 
-    #    set g(currdiff) $message
     set g(statusInfo) $message
     debug-info "show-info: $message"
     update idletasks
@@ -5039,7 +5122,7 @@ proc debug-info {message} {
 # Compute differences (start over, basically).
 ###############################################################################
 proc rediff {} {
-    debug-info "rediff"
+    debug-info "\nrediff"
     global g
     global opts
     global finfo
@@ -5172,7 +5255,6 @@ proc rediff {} {
     }
 
     # Mark up the two text widgets and go to the first diff (if there is one).
-
     draw-line-numbers
 
     show-info "Marking differences..."
@@ -5184,7 +5266,6 @@ proc rediff {} {
 
     if {[mark-diffs]} {
         set g(pos) 1
-        #debug-info "   ...move from rediff"
         move 1 0 1
         buttons normal
     } else {
@@ -5227,7 +5308,6 @@ proc restore-cursor {args} {
     $w(LeftText) configure -cursor {}
     $w(RightText) configure -cursor {}
     $w(combo) configure -cursor {}
-    debug-info "  ...show-info from restore-cursor"
     show-info ""
     update idletasks
 }
@@ -5249,16 +5329,15 @@ proc check-error {result output} {
 # numerically speaking.
 ###############################################################################
 proc recompute-diff {} {
+
     debug-info "recompute-diff"
     global g
     set current $g(pos)
+    debug-info "current position $g(pos)"
 
     do-diff
-    #debug-info "   ...move from recompute-diff"
     move $current 0 1
-
-    #debug-info "update-display from recompute-diff"
-    #update-display
+    center
 }
 
 
@@ -5270,8 +5349,6 @@ proc do-diff {} {
     global g finfo map errorInfo
     global opts
 
-    update idletasks
-
     wipe-window
     update idletasks
     set result [catch {
@@ -5280,9 +5357,10 @@ proc do-diff {} {
             catch {$map blank}
         }
 
+        #assemble-args
         rediff
-        #merge-read-file
-        #merge-add-marks
+        merge-read-file
+        merge-add-marks
 
         # If a map exists, recreate it
         if {$opts(showmap)} {
@@ -5292,11 +5370,10 @@ proc do-diff {} {
 
     } output]
 
+    #debug-info "  result: $result   outptut: $output"
     check-error $result $output
 
     if {$g(mergefileset)} {
-        merge-read-file
-        merge-add-marks
         do-show-merge 1
     }
 }
@@ -5310,11 +5387,23 @@ proc main {} {
     global g errorInfo
     global startupError
     global opts
+    global waitvar
 
     set cmd_empty [commandline]
     debug-info "  main: commandline returned $cmd_empty"
     if {! $cmd_empty} {
         assemble-args
+    } else {
+        newDiffDialog
+        # If they cancel the dialog before doing any diffs, exit
+        if {[assemble-args] != 0} {
+          if {! [winfo exists .client]} {
+             do-exit
+          }
+          # If the full UI is drawn, don't exit
+          return
+        }
+        set cmd_empty 0
     }
 
     wm withdraw .
@@ -5367,6 +5456,7 @@ proc main {} {
     if {$cmd_empty} {
         do-new-diff
     }
+    move first 1 1
 
     # this forces all of the various scrolling windows (line numbers,
     # change bars, etc) to get in sync.
@@ -5408,10 +5498,7 @@ proc do-text-info {w title text} {
 
     catch "destroy $w"
     toplevel $w
-    #set x [winfo rootx .]
-    #set y [winfo rooty .]
 
-    #wm geometry $w "=55x29+${x}+${y}"
     wm group $w .
     wm transient $w .
     wm title $w "$g(name) Help - $title"
@@ -5420,6 +5507,9 @@ proc do-text-info {w title text} {
         setAquaDialogStyle $w
     }
 
+    set width 64
+    set height 32
+
     frame $w.f -bd 2 -relief sunken
     pack $w.f -side top -fill both -expand y
 
@@ -5427,7 +5517,7 @@ proc do-text-info {w title text} {
       -width 50 -background white -foreground black
 
     text $w.f.text -wrap word -setgrid true -padx 20 -highlightthickness 0 \
-      -bd 0 -width 50 -height 20 -yscroll [list $w.f.vsb set] \
+      -bd 0 -width $width -height $height -yscroll [list $w.f.vsb set] \
       -background white -foreground black
     scrollbar $w.f.vsb -borderwidth 1 -command [list $w.f.text yview] \
       -orient vertical
@@ -5445,7 +5535,9 @@ proc do-text-info {w title text} {
     put-text $w.f.text $text
     $w.f.text configure -state disabled
 
-    centerWindow $w [list 55 29]
+    wm geometry $w ${width}x${height}
+    update idletasks
+    raise $w
 }
 
 ###############################################################################
@@ -5493,6 +5585,9 @@ proc newDiffDialog {} {
     global g w
     global finfo
 
+    set g(mergefile) ""
+    set g(mergefileset) 0
+
     set waitvar {}
     set w(newDiffPopup) .newDiffPopup
 
@@ -5503,7 +5598,10 @@ proc newDiffDialog {} {
         toplevel $w(newDiffPopup)
 
         wm group $w(newDiffPopup) .
-        wm transient $w(newDiffPopup) .
+        # Won't start as the first window on Windows if it's transient
+        if {[winfo exists .client]} {
+            wm transient $w(newDiffPopup) .
+        }
         wm title $w(newDiffPopup) "New Diff"
 
         if {$g(windowingSystem) == "aqua"} {
@@ -5552,8 +5650,6 @@ proc newDiffDialog {} {
         grid $simple.b2 -row 2 -column 5 -sticky nsew -padx 4 -pady 4
 
         grid columnconfigure $simple 0 -weight 0
-        #grid columnconfigure $simple 1 -weight 1
-        #grid columnconfigure $simple 2 -weight 0
 
         set options [frame $w(newDiffPopup).options -borderwidth 2 \
           -relief groove]
@@ -5590,7 +5686,7 @@ proc newDiffDialog {} {
         }
         button $commands.cancel -text "Cancel" -width 5 -default normal \
           -command {
-            wm withdraw $w(newDiffPopup)
+            wm withdraw $w(newDiffPopup); set waitvar 0
         }
 
         pack $commands.ok $commands.cancel -side left -fill none -expand y \
@@ -5608,7 +5704,11 @@ proc newDiffDialog {} {
         bind $w(newDiffPopup) <Escape> [list $commands.cancel invoke]
 
     }
-    centerWindow $w(newDiffPopup)
+    if {[winfo exists .client]} {
+      centerWindow $w(newDiffPopup)
+    } else {
+      update
+    }
     wm deiconify $w(newDiffPopup)
     raise $w(newDiffPopup)
     focus $w(newDiffPopup,entry1)
@@ -5634,7 +5734,11 @@ proc open-more-options {} {
     set y [winfo height $w(newDiffPopup)]
     set yi [winfo reqheight $w(newDiffPopup).options]
     set newy [expr $y + $yi]
-    centerWindow $w(newDiffPopup)
+    if {[winfo exists .client]} {
+       centerWindow $w(newDiffPopup)
+    } else {
+       update
+    }
 }
 
 proc close-more-options {} {
@@ -5659,7 +5763,6 @@ proc close-more-options {} {
 
     $w(newDiffPopup).options.more configure -text "More" \
       -command open-more-options
-    centerWindow $w(newDiffPopup)
 }
 
 ###############################################################################
@@ -5936,8 +6039,9 @@ proc do-about {} {
     set title "About $g(name)"
     set text {
 <hdr>$g(name) $g(version)</hdr>
+
 <itl>$g(name)</itl> is a Tcl/Tk front-end to <itl>diff</itl> for Unix and \
-      Windows, and is Copyright (C) 1994-1998 by John M. Klassa.
+      Windows, and is Copyright (C) 1994-2005 by John M. Klassa.
 
 Many of the toolbar icons were created by Dean S. Jones and used with his \
       permission. The icons have the following copyright:
@@ -5987,10 +6091,8 @@ proc do-usage {mode} {
 
     Source control (AccuRev, BitKeeper, CVS, Subversion, Perforce, PVCS,
       RCS, SCCS, ClearCase)
-     	tkdiff FILE   (same as -r FILE)
-     	tkdiff -r FILE
-	tkdiff -rREV FILE   (same as -rREV -r FILE)
-	tkdiff -rREV -r FILE
+     	tkdiff FILE
+	tkdiff -rREV FILE
 	tkdiff -rREV1 -rREV2 FILE
 
     Additional optional parameters:
@@ -6025,12 +6127,11 @@ In the remaining forms, <cmp>REV</cmp> (or <cmp>REV1</cmp> and \
       the the revision most recently checked in.
 
 To merge a file with conflict markers generated by "<cmp>merge</cmp>", \
-      "<cmp>cvs</cmp>", or "<cmp>vmrg</cmp>", use "<cmp>tkdiff \
-      -conflict FILE</cmp>". The file is split into two temporary files which \
-      you can merge as usual (see below).
+      "<cmp>cvs</cmp>", or "<cmp>vmrg</cmp>", use \
+      "<cmp>tkdiff -conflict FILE</cmp>". The file is split into two temporary \
+      files which you can merge as usual (see below).
 
-Note that "<cmp>tkdiff FILE</cmp>" is the same as "<cmp>tkdiff \
-      -r FILE</cmp>". The CVS version has priority, followed by the \
+For "<cmp>tkdiff FILE</cmp>" The CVS version has priority, followed by the \
       Subversion version, followed by the SCCS version -- i.e. if a CVS \
       directory is present, CVS; if not and a Subversion directory is \
       present, Subversion; if not and an SCCS directory is present, SCCS is \
@@ -6039,14 +6140,10 @@ Note that "<cmp>tkdiff FILE</cmp>" is the same as "<cmp>tkdiff \
       environment variable ACCUREV_BIN is found, AccuRev is used. If P4CLIENT \
       is found, Perforce is used. If CLEARCASE_ROOT is found, ClearCase is used.
 
-Note also that the "<cmp>tkdiff -rREV -r FILE</cmp>" form results in a \
-      comparison between revision <cmp>REV</cmp> and the head of the AccuRev, \
-      RCS, CVS, Subversion, SCCS, PVCS or Perforce revision tree.
-
 If the merge output filename is not specified, tkdiff will present a dialog \
       to allow you to choose the name of the merge output file.
 
-Note further that anything with a leading dash that isn't recognized as a \
+Note further that anything with a leading dash that isn\'t recognized as a \
       $g(name) option is passed through to diff.  This permits you to \
       temporarily alter the way diff is called, without resorting to a change \
       in your preferences file.
@@ -6254,6 +6351,7 @@ To see a preview of the file that would be written by "Write Merge File...", \
 
 <hdr>Author</hdr>
 John M. Klassa
+
 <hdr>Comments</hdr>
 Questions and comments should be sent to the TkDiff mailing list at \
       tkdiff-discuss@lists.sourceforge.net.
@@ -6277,7 +6375,7 @@ proc do-help-preferences {} {
 <hdr>Overview</hdr>
 
 Preferences are stored in a file in your home directory (identified by the \
-      environment variable <cmp>HOME</cmp>. If the environment variable \
+      environment variable <cmp>HOME</cmp>.) If the environment variable \
       <cmp>HOME</cmp> is not set the platform-specific variant\
       of "/" will be used. If you are on a Windows platform the file will be \
       named <cmp>_tkdiff.rc</cmp> and will have the attribute "hidden". For \
@@ -6302,9 +6400,11 @@ This is the command to run to generate a diff of the two files. Typically \
 
 Arguments to send with the diff command to tell it how to ignore whitespace. \
       If you are using gnu diff, "-b" or "--ignore-space-change" ignores \
-      changes in the amount of whitespace, while "-"w or \
+      changes in the amount of whitespace, while "-w" or \
       "--ignore-all-space" ignores all white space.
+
 <bld>$pref(tmpdir)</bld>
+
 The name of a directory for files that are temporarily created while $g(name) \
       is running.
 
@@ -6317,7 +6417,7 @@ The name of an external editor program to use when editing a file (ie: when \
       want to set this to "xterm -e vi" or perhaps "gnuclient". When run, the \
       name of the file to edit will be appened as the\
       last argument on the command line.
-If the supplied string contains the string "\$file", it's treated as a whole \
+If the supplied string contains the string "\$file", it\'s treated as a whole \
       command line, where the following parameters can be used:
  \$file: the file of your choice
  \$line: the starting line of the current diff
@@ -6333,9 +6433,9 @@ This defines the default size, in characters of the two text windows. The \
 
 If set, toolbar buttons will mimic the visual behavior of typical Microsoft \
       Windows applications. Buttons will initially be flat until the cursor \
-      moves over them, at which time they will be raised. This feature is not \
-      supported in MacOSX.
+      moves over them, at which time they will be raised.
 If unset, toolbar buttons will always appear raised.
+This feature is not supported in MacOSX.
 
 <bld>$pref(toolbarIcons)</bld>
 
@@ -6371,7 +6471,7 @@ If not set, no line numbers will appear.
 
 If set, line numbers are highlighted with the options defined in the \
       Appearance section of the preferences.
-If not set, line numbers won't be highlighted.
+If not set, line numbers won\'t be highlighted.
 
 <bld>$pref(showcbs)</bld>
 
@@ -6425,7 +6525,7 @@ finds the largest common substring, and recursively repeats on the left and \
 
 If set, the file contents will be highlighted with the options defined in the \
       Appearance section of the preferences.
-If not set, the file contents won't be highlighted.
+If not set, the file contents won\'t be highlighted.
 
 <bld>$pref(colorcbs)</bld>
 
@@ -6434,6 +6534,7 @@ If set, the change bars will display as solid bars of color that match the \
 If not set, the change bars will display a "+" for lines that exist in only \
       one file, a "-" for lines that are missing from only one file, and \
       "!" for lines that are different between the two files.
+
 <hdr>Appearance</hdr>
 
 <bld>$pref(textopt)</bld>
@@ -6504,7 +6605,6 @@ This defines the number of characters for each tabstop in the main display \
     do-text-info .help-preferences $title $text
 }
 
-
 ######################################################################
 #
 # text formatting routines derived from Klondike
@@ -6537,9 +6637,21 @@ This defines the number of characters for each tabstop in the main display \
 # SUCH DAMAGE.
 #
 ######################################################################
-
 proc put-text {tw txt} {
-    global tk_version
+
+    $tw configure -font {Fixed 12}
+
+    $tw configure -font -*-Times-Medium-R-Normal-*-14-*
+
+    $tw tag configure bld -font -*-Times-Bold-R-Normal-*-14-*
+    $tw tag configure cmp -font -*-Courier-Medium-R-Normal-*-12-*
+    $tw tag configure hdr -font -*-Helvetica-Bold-R-Normal-*-16-* -underline 1
+    $tw tag configure itl -font -*-Times-Medium-I-Normal-*-14-*
+    $tw tag configure ttl -font -*-Helvetica-Bold-R-Normal-*-18-*
+    #$tw tag configure h3 -font -*-Helvetica-Bold-R-Normal-*-14-*
+    #$tw tag configure itl -font -*-Times-Medium-I-Normal-*-14-*
+    #$tw tag configure rev -foreground white -background black
+
 
     $tw mark set insert 0.0
 
@@ -6585,6 +6697,7 @@ proc purge-all-tags {w start end} {
     }
 }
 
+# Open one of the diffed files in an editor if possible
 proc do-edit {} {
     global g
     global opts
@@ -6615,14 +6728,12 @@ proc do-edit {} {
     }
 }
 
-
 ##########################################################################
 # platform-specific stuff
 ##########################################################################
 proc setAquaDialogStyle {toplevel} {
     tk::unsupported::MacWindowStyle style $toplevel movableDBoxProc
 }
-
 
 ##########################################################################
 # A simple editor, from Bryan Oakley.
@@ -6711,7 +6822,7 @@ proc simpleEd {command args} {
 
 # end of simpleEd
 
-# Copyright (c) 1998-2002, Bryan Oakley
+# Copyright (c) 1998-2005, Bryan Oakley
 # All Rights Reservered
 #
 # Bryan Oakley
@@ -6740,7 +6851,6 @@ proc simpleEd {command args} {
 #
 # ... and many others over the years.
 
-package require Tk 8.0
 package provide combobox 2.2.2
 
 namespace eval ::combobox {
@@ -9118,6 +9228,15 @@ CCEEEUIIIYQiADs=
 
 image create photo nullImage
 
+image create bitmap resize -data {
+    #define resize_width 14
+    #define resize_height 11
+    static char resize_bits[] = {
+        0x20, 0x01, 0x30, 0x03, 0x38, 0x07, 0x3c, 0x0f, 0x3e, 0x1f, 0x3f, 0x3f,
+        0x3e, 0x1f, 0x3c, 0x0f, 0x38, 0x07, 0x30, 0x03, 0x20, 0x01
+    }
+}
+
 # Tooltip popups
 
 #
@@ -9364,8 +9483,8 @@ proc get_aqua_params {} {
 
     # button highlightbackground has to be the same as background
     # or else there are little white boxes around the button "pill"
-    option add *background #cccccc userDefault
-    option add *Button.highlightBackground #cccccc userDefault
+    option add *background #ebebeb userDefault
+    option add *Button.highlightBackground #ebebeb userDefault
 
     option add *Entry.HighlightThickness 2 userDefault
     option add *Entry.highlightBackground $w(selcolor) userDefault
