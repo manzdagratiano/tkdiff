@@ -42,7 +42,7 @@ wm withdraw .
 
 # set a couple o' globals that we might need sooner than later
 set g(name) "TkDiff"
-set g(version) "4.1"
+set g(version) "4.1.1"
 set g(started) 0
 
 # FIXME - move to preferences
@@ -207,6 +207,7 @@ array set finfo {
     tmp,1        0
     tmp,2        0
 }
+set uniq 0
 
 # These options may be changed at runtime
 array set opts {
@@ -387,9 +388,19 @@ proc fatal-error {msg} {
 ###############################################################################
 proc tmpfile {n} {
     debug-info "tmpfile ($n)"
-    global opts
+    global g opts
+    global uniq
+    set uniq [expr ($uniq + 1) ]
     set tmpdir [file nativename $opts(tmpdir)]
-    set tmpfile [file join $tmpdir "[pid]-$n"]
+    set tmpfile [file join $tmpdir "[pid]-$n-$uniq"]
+    set access [list RDWR CREAT EXCL TRUNC]
+    set perm 0600
+    if {[catch {open $tmpfile $access $perm} fid ]} {
+        # something went wrong
+        error "Failed creating temporary file: $fid"
+    }
+    close $fid
+    lappend g(tempfiles) $tmpfile
     return $tmpfile
 }
 
@@ -646,9 +657,7 @@ proc split-conflictfile {name} {
         fatal-error "Couldn't open file '$name'"
     }
     set first [open $temp1 w]
-    lappend g(tempfiles) $temp1
     set second [open $temp2 w]
-    lappend g(tempfiles) $temp2
 
     set firstname ""
     set secondname ""
@@ -5477,14 +5486,8 @@ proc main {} {
 # Erase tmp files (if necessary) and destroy the application.
 ###############################################################################
 proc del-tmp {} {
-    global g finfo
+    global g
 
-    if {$finfo(tmp,1)} {
-        file delete $finfo(pth,1)
-    }
-    if {$finfo(tmp,2)} {
-        file delete $finfo(pth,2)
-    }
     foreach f $g(tempfiles) {
         file delete $f
     }
