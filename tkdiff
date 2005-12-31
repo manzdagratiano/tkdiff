@@ -42,7 +42,7 @@ wm withdraw .
 
 # set a couple o' globals that we might need sooner than later
 set g(name) "TkDiff"
-set g(version) "4.1.1"
+set g(version) "4.1.2"
 set g(started) 0
 
 # FIXME - move to preferences
@@ -797,6 +797,22 @@ proc get-file-rev {f index {r ""}} {
             debug-info "  Setting lbl $finfo(lbl,$index)"
             die-unless "exec $cmd cat $svnopt $f" $finfo(pth,$index)
         }
+    } elseif {[regexp {://} $f]} {
+        # Subversion command can have the form
+        # svn diff OLD-URL[@OLDREV] NEW-URL[@NEWREV]
+        regsub {^.*@} $f {} rev
+        regsub {@\d+$} $f {} path
+        set finfo(lbl,$index) "$f"
+        set cmd "svn"
+        if {$::tcl_platform(platform) == "windows"} {
+            append cmd ".exe"
+        }
+        if {"$rev" == ""} {
+            set command "$cmd cat $path"
+        } else {
+            set command "$cmd cat -r$rev $path"
+        }
+        die-unless "exec $command" $finfo(pth,$index)
     } elseif {[file isdirectory [file join $dirname SCCS]]} {
         if {[sccs-is-bk]} {
             set cmd "bk"
@@ -813,8 +829,6 @@ proc get-file-rev {f index {r ""}} {
             append cmd ".exe"
         }
         die-unless "exec $cmd get -p $opt \"$f\"" "\"$finfo(pth,$index)\""
-
-
     } elseif {[file isdirectory [file join $dirname RCS]]} {
         set cmd "co"
         if {$::tcl_platform(platform) == "windows"} {
@@ -823,7 +837,6 @@ proc get-file-rev {f index {r ""}} {
         set finfo(lbl,$index) "$f (RCS $rev)"
         debug-info "  Setting lbl $finfo(lbl,$index)"
         die-unless "exec $cmd -p$rcsopt \"$f\"" "\"$finfo(pth,$index)\""
-
     } elseif {[file exists [file join $dirname $tailname,v]]} {
         set cmd "co"
         if {$::tcl_platform(platform) == "windows"} {
@@ -832,7 +845,6 @@ proc get-file-rev {f index {r ""}} {
         set finfo(lbl,$index) "$f (RCS $rev)"
         debug-info "  Setting lbl $finfo(lbl,$index)"
         die-unless "exec $cmd -p$rcsopt \"$f\"" \""$finfo(pth,$index)\""
-
     } elseif {[file exists [file join $dirname vcs.cfg]]} {
         set cmd "get"
         if {$::tcl_platform(platform) == "windows"} {
@@ -842,7 +854,6 @@ proc get-file-rev {f index {r ""}} {
         debug-info "  Setting lbl $finfo(lbl,$index)"
         die-unless "exec $cmd -p $pvcsopt \"$f\"" "\"$finfo(pth,$index)\""
         filterCRCRLF $finfo(pth,$index)
-
     } elseif {[info exists ::env(P4CLIENT)]} {
         set cmd "p4"
         if {$::tcl_platform(platform) == "windows"} {
@@ -851,7 +862,6 @@ proc get-file-rev {f index {r ""}} {
         set finfo(lbl,$index) "$f (Perforce $rev)"
         debug-info "  Setting lbl $finfo(lbl,$index)"
         die-unless "exec $cmd print -q \"$p4file\"" "\"$finfo(pth,$index)\""
-
     } elseif {[info exists ::env(ACCUREV_BIN)]} {
         set cmd "accurev"
         if {$::tcl_platform(platform) == "windows"} {
@@ -862,44 +872,34 @@ proc get-file-rev {f index {r ""}} {
         die-unless "exec $cmd cat $acopt \"$f\"" "\"$finfo(pth,$index)\""
     } elseif {[info exists ::env(CLEARCASE_ROOT)]} {
         set cmd "cleartool"
-
         set finfo(lbl,$index) "$f (ClearCase $rev)"
         debug-info "  Setting lbl $finfo(lbl,$index)"
-
         catch {exec $cmd ls -s $f} ctls
-
         # get the path name to file minus the revision info
         # (either CHECKEDOUT or a number)
         if {![regexp {(\S+)/([^/]+)$} $ctls dummy path checkedout]} {
             puts "Couldn't parse ct ls output '$ctls'"
             exit
         }
-
         catch {exec $cmd lshistory -last 50 $f} ctlshistory
-
         set lines [split $ctlshistory "\n"]
         set predecessor ""
-
         # find the previous version
         if {$checkedout == "CHECKEDOUT" || $checkedout == 0} {
             if {$checkedout == 0} {
                 set path [file dirname $path]
             }
-
             set pattern "create version \"($path/\[^/\]+)\""
         } else {
             incr checkedout -1
-
             set pattern "create version \"($path/$checkedout)\""
         }
-
         # search the history of the file for the latest version on our branch
         foreach l $lines {
             if {[regexp $pattern $l dummy predecessor]} {
                 break
             }
         }
-
         if {$predecessor != ""} {
             set finfo(pth,$index) $predecessor
             debug-info "  Setting lbl from predecessor $finfo(lbl,$index)"
@@ -1155,7 +1155,7 @@ proc assemble-args {} {
             set f1 $finfo(f,1)
             set f2 $finfo(f,2)
             if {[file isdirectory $f1] && [file isdirectory $f2]} {
-                fatal-error "Either <file1> or <file2> must be a plain file"
+                fatal-error "Cannot diff two directories"
             }
 
             if {[file isdirectory $f1]} {
@@ -1164,8 +1164,18 @@ proc assemble-args {} {
                 set f2 [file join $f2 [file tail $f1]]
             }
 
-            if {[get-file "$f1" 1]} {return}
-            if {[get-file "$f2" 2]} {return}
+            # Maybe they're Subversion URL paths, not local files
+            if {[regexp {://} $f1]} {
+                get-file-rev "$f1" 1
+            } else {
+                if {[get-file "$f1" 1]} {return}
+            }
+            if {[regexp {://} $f2]} {
+                get-file-rev "$f2" 2
+            } else {
+                if {[get-file "$f2" 2]} {return}
+            }
+
 
         } elseif {$revs == 0 && $pths == 1} {
             ############################################################
@@ -6097,12 +6107,13 @@ proc do-usage {mode} {
      	tkdiff FILE
 	tkdiff -rREV FILE
 	tkdiff -rREV1 -rREV2 FILE
+        tkdiff OLD-URL[@OLDREV] NEW-URL[@NEWREV] (Subversion)
 
     Additional optional parameters:
 	-a ANCESTORFILE 
 	-o MERGEOUTPUTFILE 
 	-L LEFT_FILE_LABEL [-L RIGHT_FILE_LABEL]
-}
+    }
 
     set usage [subst -nobackslashes -nocommands $usage]
 
