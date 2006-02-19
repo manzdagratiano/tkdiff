@@ -800,7 +800,9 @@ proc get-file-rev {f index {r ""}} {
     } elseif {[regexp {://} $f]} {
         # Subversion command can have the form
         # svn diff OLD-URL[@OLDREV] NEW-URL[@NEWREV]
-        regsub {^.*@} $f {} rev
+        if {![regsub {^.*@} $f {} rev]} {
+            set rev "HEAD"
+        }
         regsub {@\d+$} $f {} path
         set finfo(lbl,$index) "$f"
         set cmd "svn"
