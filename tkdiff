@@ -42,7 +42,7 @@ wm withdraw .
 
 # set a couple o' globals that we might need sooner than later
 set g(name) "TkDiff"
-set g(version) "4.1.2"
+set g(version) "4.1.3"
 set g(started) 0
 
 # FIXME - move to preferences
@@ -213,38 +213,38 @@ set uniq 0
 array set opts {
     autocenter        1
     autoselect        0
-    colorcbs        0
+    colorcbs          0
     customCode        {}
-    diffcmd        "diff"
-    ignoreblanksopt "-b"
-    ignoreblanks 0
-    editor        ""
-    geometry        "80x30"
-    showcbs        1
-    showln        1
-    showmap        1
-    showlineview 0
-    showinline1 0
-    showinline2 1
+    diffcmd           "diff"
+    ignoreblanksopt   "-b"
+    ignoreblanks      0
+    editor            ""
+    geometry          "80x30"
+    showcbs           1
+    showln            1
+    showmap           1
+    showlineview      0
+    showinline1       0
+    showinline2       1
     syncscroll        1
-    toolbarIcons 1
-    tagcbs        0
-    tagln        0
-    tagtext        1
-    tabstops    8
+    toolbarIcons      1
+    tagcbs            0
+    tagln             0
+    tagtext           1
+    tabstops          8
 }
 
 # reporting options
 array set report {
-    doSideLeft                 0
+    doSideLeft                0
     doLineNumbersLeft         1
-    doChangeMarkersLeft         1
-    doTextLeft                 1
-    doSideRight                 1
-    doLineNumbersRight         1
-    doChangeMarkersRight 1
-    doTextRight                 1
-    filename                 "tkdiff.out"
+    doChangeMarkersLeft       1
+    doTextLeft                1
+    doSideRight               1
+    doLineNumbersRight        1
+    doChangeMarkersRight      1
+    doTextRight               1
+    filename                  "tkdiff.out"
 }
 
 if {[string first "color" [winfo visual .]] >= 0} {
@@ -4793,7 +4793,7 @@ proc update-display {} {
             $w(mergeChoice12_$buttonpref) configure -state normal
             $w(mergeChoice21_$buttonpref) configure -state normal
         }
-        $w(mergeChoiceLabel) configure -state normal
+        catch { $w(mergeChoiceLabel) configure -state normal }
 
     } else {
         foreach buttonpref {im tx} {
@@ -4803,7 +4803,7 @@ proc update-display {} {
             $w(mergeChoice12_$buttonpref) configure -state disabled
             $w(mergeChoice21_$buttonpref) configure -state disabled
         }
-        $w(mergeChoiceLabel) configure -state disabled
+        catch { $w(mergeChoiceLabel) configure -state disabled }
         $w(popupMenu) entryconfigure "Center*" -state disabled
         $w(viewMenu) entryconfigure "Center*" -state disabled
 
