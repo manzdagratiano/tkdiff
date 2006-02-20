@@ -1,0 +1,24 @@
+
+To install, simply drag TkDiff to your /Applications directory.
+
+Note that if you run the application by double-clicking on it, it
+prompts you for filenames and revisions.  If you'd rather run it from
+the command line (the more traditional "Unixy" way), you'll find that
+you can't pass filenames/revisions unless you do the following:
+
+    alias tkdiff "/Applications/TkDiff.app/Contents/MacOS/Wish\ Shell"
+
+This is for csh/tcsh users, obviously.  sh/bash/ksh users substitute, as
+appropriate.  Note that the slash is required, even in the presence of
+the quotes, because the escaping has to occur when the alias is used
+(i.e. expanded).
+
+At any rate, once you've created this shell alias, you can do:
+
+    tkdiff FILE1 FILE2
+
+and things should work nicely.
+
+
+John Klassa
+February, 2006
