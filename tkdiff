@@ -1025,6 +1025,8 @@ proc commandline {} {
                 incr argindex
                 set g(mergefile) [lindex $argv $argindex]
             }
+        "^-u$" { # Ignore
+	    }
         "^-o.*" {
                 set g(mergefile) [string range $arg 2 end]
             }
