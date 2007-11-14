@@ -7,7 +7,7 @@
 	<key>CFBundleExecutable</key>
 	<string>Wish Shell</string>
 	<key>CFBundleGetInfoString</key>
-	<string>TkDiff 4.1.2</string>
+	<string>TkDiff 4.1.4</string>
 	<key>CFBundleIconFile</key>
 	<string>Delta.icns</string>
 	<key>CFBundleIdentifier</key>
@@ -19,10 +19,10 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>4.1.2</string>
+	<string>4.1.4</string>
 	<key>CFBundleSignature</key>
 	<string>WiSH</string>
 	<key>CFBundleVersion</key>
-	<string>4.1.2</string>
+	<string>4.1.4</string>
 </dict>
 </plist>

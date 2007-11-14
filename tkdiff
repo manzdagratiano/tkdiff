@@ -42,7 +42,7 @@ wm withdraw .
 
 # set a couple o' globals that we might need sooner than later
 set g(name) "TkDiff"
-set g(version) "4.1.3"
+set g(version) "4.1.4"
 set g(started) 0
 
 # FIXME - move to preferences
@@ -154,6 +154,17 @@ if {! [regexp -- {-} $entryfont]} {
 #debug-info "textfont $textfont"
 #debug-info "entryfont $entryfont"
 
+set fs [lindex $textfont 1]
+if {$fs == ""} {
+  # This happens on Windows in tk8.5
+  # You get {TkDefaultFont} instead of {fixed 12} or whatever
+  # Then when you add "bold" to it you have a bad spec
+  set fa [font actual $textfont]
+  puts " actual font: $fa"
+  set fm [lindex $fa 1]
+  set fs [lindex $fa 3]
+  set textfont [list $fm $fs]
+}
 set font [list $textfont]
 set bold [list [concat $textfont bold]]
 #debug-info "font: $font"
@@ -790,12 +801,12 @@ proc get-file-rev {f index {r ""}} {
         if {"$r" == "" || "$rev" == "rBASE"} {
             set finfo(lbl,$index) "$f (SVN BASE)"
             debug-info "  Setting lbl $finfo(lbl,$index)"
-            die-unless "exec cat $dirname/.svn/text-base/$tailname.svn-base" \
+            die-unless "exec cat \"$dirname/.svn/text-base/$tailname.svn-base\"" \
               $finfo(pth,$index)
         } else {
             set finfo(lbl,$index) "$f (SVN $rev)"
             debug-info "  Setting lbl $finfo(lbl,$index)"
-            die-unless "exec $cmd cat $svnopt $f" $finfo(pth,$index)
+            die-unless "exec $cmd cat $svnopt \"$f\"" $finfo(pth,$index)
         }
     } elseif {[regexp {://} $f]} {
         # Subversion command can have the form
@@ -856,7 +867,7 @@ proc get-file-rev {f index {r ""}} {
         debug-info "  Setting lbl $finfo(lbl,$index)"
         die-unless "exec $cmd -p $pvcsopt \"$f\"" "\"$finfo(pth,$index)\""
         filterCRCRLF $finfo(pth,$index)
-    } elseif {[info exists ::env(P4CLIENT)]} {
+    } elseif {[info exists ::env(P4CLIENT)] || [info exists ::env(P4CONFIG)]} {
         set cmd "p4"
         if {$::tcl_platform(platform) == "windows"} {
             append cmd ".exe"
@@ -1025,10 +1036,11 @@ proc commandline {} {
                 incr argindex
                 set g(mergefile) [lindex $argv $argindex]
             }
-        "^-u$" { # Ignore
-	    }
         "^-o.*" {
                 set g(mergefile) [string range $arg 2 end]
+            }
+        "^-u$"  {
+                # Ignore flag from "svn diff --diff-cmd=tkdiff"
             }
         "^-psn" {
                 # Ignore the Carbon Process Serial Number
@@ -2197,7 +2209,7 @@ proc build-menubar {} {
         do-edit
     } -underline 10
     $editMenu add separator
-    $editMenu add command -label "Preferences..." -underline 3 \
+    $editMenu add command -label "Preferences..." -underline 0 \
       -command customize
 
     set "g(tooltip,Copy)" "Copy the currently selected text to the clipboard"
