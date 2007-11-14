@@ -136,19 +136,6 @@ destroy .testent
 # selected color (rh8 with tk 8.3.3-74) "#c3c3c3"
 set w(selcolor) "#b03060"
 
-# Make sure fon size is specified in points not pixels.  AquaTk doesn't.
-if {! [regexp -- {-} $labelfont]} {
-    regsub { (\d+)} $labelfont { -\1} labelfont
-}
-if {! [regexp -- {-} $menufont]} {
-    regsub { (\d+)} $menufont { -\1} menufont
-}
-if {! [regexp -- {-} $textfont]} {
-    regsub { (\d+)} $textfont { -\1} textfont
-}
-if {! [regexp -- {-} $entryfont]} {
-    regsub { (\d+)} $entryfont { -\1} entryfont
-}
 #debug-info "menufont $menufont"
 #debug-info "labelfont $labelfont"
 #debug-info "textfont $textfont"
