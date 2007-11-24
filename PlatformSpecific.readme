@@ -8,7 +8,7 @@ To make a stand-alone starpack for Windows (can be done on Linux)
   4. Edit PackStarpack so $Tclkit points to where you put it.
   5. Run PackStarpack.  It will produce the stand-alone tkdiff.exe
 
-Windows installer:
+Windows installer (do on Windows):
   6. Get InstallJammer for Windows.
   7. Start InstallJammer and open TkDiff.mpi with it.  Edit the Tkdiff
       version number. Re-save the mpi. (Or edit the mpi file first.)
