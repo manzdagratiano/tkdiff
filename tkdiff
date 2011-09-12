@@ -42,7 +42,7 @@ wm withdraw .
 
 # set a couple o' globals that we might need sooner than later
 set g(name) "TkDiff"
-set g(version) "4.1.4"
+set g(version) "4.2"
 set g(started) 0
 
 # FIXME - move to preferences
@@ -132,9 +132,6 @@ entry .testent
 set w(selcolor) [lindex [.testent configure -selectbackground] 4]
 set entryfont [lindex [.testent configure -font] 3]
 destroy .testent
-# the above results in a nearly undistinguishable darker gray for the
-# selected color (rh8 with tk 8.3.3-74) "#c3c3c3"
-set w(selcolor) "#b03060"
 
 #debug-info "menufont $menufont"
 #debug-info "labelfont $labelfont"
@@ -147,7 +144,7 @@ if {$fs == ""} {
   # You get {TkDefaultFont} instead of {fixed 12} or whatever
   # Then when you add "bold" to it you have a bad spec
   set fa [font actual $textfont]
-  puts " actual font: $fa"
+  #puts " actual font: $fa"
   set fm [lindex $fa 1]
   set fs [lindex $fa 3]
   set textfont [list $fm $fs]
@@ -738,22 +735,26 @@ proc get-file-rev {f index {r ""}} {
         set acopt ""
         set cvsopt ""
         set svnopt ""
+        set gitopt ""
         set rcsopt ""
         set sccsopt ""
         set bkopt ""
         set pvcsopt ""
         set p4file "$f"
+        set hgopt ""
     } else {
         set rev "r$r"
         set acrev "\"$r\""
         set acopt "-v \"$r\""
         set cvsopt "-r $r"
         set svnopt "-r $r"
+        set gitopt "$r:"
         set rcsopt "$r"
         set sccsopt "-r$r"
         set bkopt "-r$r"
         set pvcsopt "-r$r"
         set p4file "$f#$r"
+        set hgopt "-r$r"
     }
 
     set finfo(pth,$index) [tmpfile $index]
@@ -795,6 +796,28 @@ proc get-file-rev {f index {r ""}} {
             debug-info "  Setting lbl $finfo(lbl,$index)"
             die-unless "exec $cmd cat $svnopt \"$f\"" $finfo(pth,$index)
         }
+    } elseif {[file isdirectory [file join $dirname .git]]} {
+        set cmd "git"
+        if {$::tcl_platform(platform) == "windows"} {
+            append cmd ".exe"
+        }
+        # Won't work if you aren't actually in the work tree
+        if {[catch {eval "exec $cmd rev-parse --is-inside-work-tree"} err] } {
+           puts stderr "$err"
+           puts stderr "Please start in a git work tree."
+           exit 1
+        }
+        set prefix [exec $cmd rev-parse --show-prefix]
+        if {"$r" == "" || "$rev" == "rBASE"} {
+            set finfo(lbl,$index) "$f (GIT BASE)"
+            debug-info "  Setting lbl $finfo(lbl,$index)"
+            die-unless "exec $cmd show \":$prefix$f\"" \
+              $finfo(pth,$index)
+        } else {
+            set finfo(lbl,$index) "$f (GIT $rev)"
+            debug-info "  Setting lbl $finfo(lbl,$index)"
+            die-unless "exec $cmd show \"$gitopt$prefix$f\"" $finfo(pth,$index)
+        }
     } elseif {[regexp {://} $f]} {
         # Subversion command can have the form
         # svn diff OLD-URL[@OLDREV] NEW-URL[@NEWREV]
@@ -813,18 +836,20 @@ proc get-file-rev {f index {r ""}} {
             set command "$cmd cat -r$rev $path"
         }
         die-unless "exec $command" $finfo(pth,$index)
-    } elseif {[file isdirectory [file join $dirname SCCS]]} {
-        if {[sccs-is-bk]} {
-            set cmd "bk"
-            set opt $bkopt
-            set finfo(lbl,$index) "$f (bitkeeper $rev)"
-            debug-info "  Setting lbl $finfo(lbl,$index)"
-        } else {
-            set finfo(lbl,$index) "$f (SCCS $rev)"
-            debug-info "  Setting lbl $finfo(lbl,$index)"
-            set opt $sccsopt
-            set cmd "sccs"
+    } elseif {[sccs-is-bk]} {
+	set cmd "bk"
+	set opt $bkopt
+	set finfo(lbl,$index) "$f (bitkeeper $rev)"
+	debug-info "  Setting lbl $finfo(lbl,$index)"
+        if {$::tcl_platform(platform) == "windows"} {
+            append cmd ".exe"
         }
+        die-unless "exec $cmd get -p $opt \"$f\"" "\"$finfo(pth,$index)\""
+    } elseif {[file isdirectory [file join $dirname SCCS]]} {
+	set finfo(lbl,$index) "$f (SCCS $rev)"
+	debug-info "  Setting lbl $finfo(lbl,$index)"
+	set opt $sccsopt
+	set cmd "sccs"
         if {$::tcl_platform(platform) == "windows"} {
             append cmd ".exe"
         }
@@ -845,7 +870,7 @@ proc get-file-rev {f index {r ""}} {
         set finfo(lbl,$index) "$f (RCS $rev)"
         debug-info "  Setting lbl $finfo(lbl,$index)"
         die-unless "exec $cmd -p$rcsopt \"$f\"" \""$finfo(pth,$index)\""
-    } elseif {[file exists [file join $dirname vcs.cfg]]} {
+    } elseif {[file exists [file join $dirname vcs.cfg]] || [info exists ::env(VCSCFG)]} {
         set cmd "get"
         if {$::tcl_platform(platform) == "windows"} {
             append cmd ".exe"
@@ -907,6 +932,23 @@ proc get-file-rev {f index {r ""}} {
             puts "Couldn't deal with $f, exiting..."
             exit
         }
+    } elseif {[is-mercurial-repository $dirname]} {
+        # mercurial support
+        set cmd "hg"
+        if {$::tcl_platform(platform) == "windows"} {
+            append cmd ".exe"
+        }
+        if {"$r" == "" || "$rev" == "PARENT"} {
+            # in hg, the revision for cat defaults to the parent revision
+            # of the working directory
+            set finfo(lbl,$index) "$f (HG PARENT)"
+            debug-info "  Setting lbl $finfo(lbl,$index)"
+            die-unless "exec $cmd cat $f" $finfo(pth,$index)
+        } else {
+            set finfo(lbl,$index) "$f (HG $rev)"
+            debug-info "  Setting lbl $finfo(lbl,$index)"
+            die-unless "exec $cmd cat $hgopt $f" $finfo(pth,$index)
+        }
     } else {
         fatal-error "File '$f' is not part of a revision control system"
     }
@@ -916,6 +958,19 @@ proc get-file-rev {f index {r ""}} {
         set finfo(lbl,$index) $finfo(userlbl,$index)
         debug-info "  User label: $finfo(lbl,$index)"
     }
+}
+
+proc is-mercurial-repository {dirname} {
+    # check for a .hg directory in all parent directories
+    set dirname [file normalize $dirname]
+    set prevdir {}
+    while {$dirname != $prevdir} {
+        set hgfilename [file join $dirname .hg]
+        if {[file isdirectory $hgfilename]} { return true }
+        set prevdir $dirname
+        set dirname [file dirname $dirname]
+    }
+    return false
 }
 
 proc sccs-is-bk {} {
@@ -2212,41 +2267,41 @@ proc build-menubar {} {
     # update the tooltips.
     menu $viewMenu
     $viewMenu add checkbutton -label "Ignore White Spaces" -underline 8 \
-      -selectcolor $w(selcolor) -variable opts(ignoreblanks) \
+      -variable opts(ignoreblanks) \
       -command do-show-ignoreblanks
 
     $viewMenu add checkbutton -label "Show Line Numbers" -underline 12 \
-      -selectcolor $w(selcolor) -variable opts(showln) \
+      -variable opts(showln) \
       -command do-show-linenumbers
 
     $viewMenu add checkbutton -label "Show Change Bars" -underline 12 \
-      -selectcolor $w(selcolor) -variable opts(showcbs) \
+      -variable opts(showcbs) \
       -command do-show-changebars
 
     $viewMenu add checkbutton -label "Show Diff Map" -underline 5 \
-      -selectcolor $w(selcolor) -variable opts(showmap) -command do-show-map
+      -variable opts(showmap) -command do-show-map
 
     $viewMenu add checkbutton -label "Show Line Comparison Window" \
-      -underline 11 -selectcolor $w(selcolor) -variable opts(showlineview) \
+      -underline 11 -variable opts(showlineview) \
       -command do-show-lineview
 
     $viewMenu add checkbutton -label "Show Inline Comparison (byte)" \
-      -selectcolor $w(selcolor) -variable opts(showinline1) \
+      -variable opts(showinline1) \
       -command do-show-inline1
 
     $viewMenu add checkbutton -label "Show Inline Comparison (recursive)" \
-      -selectcolor $w(selcolor) -variable opts(showinline2) \
+      -variable opts(showinline2) \
       -command do-show-inline2
 
     $viewMenu add separator
 
     $viewMenu add checkbutton -label "Synchronize Scrollbars" -underline 0 \
-      -selectcolor $w(selcolor) -variable opts(syncscroll)
+      -variable opts(syncscroll)
     $viewMenu add checkbutton -label "Auto Center" -underline 0 \
-      -selectcolor $w(selcolor) -variable opts(autocenter) -command {if \
+      -variable opts(autocenter) -command {if \
       {$opts(autocenter)} {center}}
     $viewMenu add checkbutton -label "Auto Select" -underline 1 \
-      -selectcolor $w(selcolor) -variable opts(autoselect)
+      -variable opts(autoselect)
 
     $viewMenu add separator
 
@@ -2294,7 +2349,7 @@ proc build-menubar {} {
     # update the tooltips.
     menu $mergeMenu
     $mergeMenu add checkbutton -label "Show Merge Window" -underline 9 \
-      -selectcolor $w(selcolor) -variable g(showmerge) -command "do-show-merge 1"
+      -variable g(showmerge) -command "do-show-merge 1"
     $mergeMenu add command -label "Write Merge File..." -underline 6 \
       -command popup-merge
     set "g(tooltip,Show Merge Window)" "Pops up a window showing the current \
@@ -2312,6 +2367,8 @@ proc build-menubar {} {
       -command do-help-preferences
     $helpMenu add separator
     $helpMenu add command -label "About $g(name)" -underline 0 -command do-about
+    $helpMenu add command -label "About Wish" -underline 0 -command about_wish
+    $helpMenu add command -label "About Diff" -underline 0 -command about_diff
 
     bind $fileMenu <<MenuSelect>> {showTooltip menu %W}
     bind $editMenu <<MenuSelect>> {showTooltip menu %W}
@@ -2325,6 +2382,8 @@ proc build-menubar {} {
       Interface"
     set "g(tooltip,On Command Line)" "Show help on the command line arguments"
     set "g(tooltip,About $g(name))" "Show information about this application"
+    set "g(tooltip,About Wish)" "Show information about Wish"
+    set "g(tooltip,About Diff)" "Show information about diff"
 }
 
 ###############################################################################
@@ -3014,7 +3073,7 @@ proc customize {} {
         set rb $w(preferences).notebook.f$page
         radiobutton $rb -command "customize-selectPage $frame" \
           -variable g(prefPage) -value $frame -height 2 -text $page \
-          -indicatoron $indicatoron -width 10 -borderwidth 1
+          -indicatoron $indicatoron -borderwidth 1
 
         pack $rb -side left
 
@@ -5410,23 +5469,7 @@ proc main {} {
     global startupError
     global opts
     global waitvar
-
-    set cmd_empty [commandline]
-    debug-info "  main: commandline returned $cmd_empty"
-    if {! $cmd_empty} {
-        assemble-args
-    } else {
-        newDiffDialog
-        # If they cancel the dialog before doing any diffs, exit
-        if {[assemble-args] != 0} {
-          if {! [winfo exists .client]} {
-             do-exit
-          }
-          # If the full UI is drawn, don't exit
-          return
-        }
-        set cmd_empty 0
-    }
+    global tk_version
 
     wm withdraw .
     wm protocol . WM_DELETE_WINDOW do-exit
@@ -5449,14 +5492,34 @@ proc main {} {
         }
     }
 
-    set g(started) 1
-    wipe
-
     if {$g(windowingSystem) == "x11"} {
-        get_cde_params
+        if {! [get_cde_params]} {
+            if {$tk_version >= 8.5} {
+                option add *Menu.selectColor [option get . foreground foreground]
+             } else {
+                option add *Menu.selectColor [option get . hightlightbackground highlightbackground]
+                option add *Checkbutton.selectColor [option get . hightlightbackground highlightbackground]
+             }
+        }
     }
     if {$g(windowingSystem) == "aqua"} {
         get_aqua_params
+    }
+
+    set g(started) 1
+    wipe
+
+    set cmd_empty [commandline]
+    debug-info "  main: commandline returned $cmd_empty"
+    if {! $cmd_empty} {
+        assemble-args
+    } else {
+        newDiffDialog
+        # If they cancel the dialog before doing any diffs, exit
+        if {[assemble-args] != 0} {
+          return
+        }
+        set cmd_empty 0
     }
 
     create-display
@@ -5702,6 +5765,7 @@ proc newDiffDialog {} {
         }
         button $commands.cancel -text "Cancel" -width 5 -default normal \
           -command {
+            if {! [winfo exists .client]} {do-exit}
             wm withdraw $w(newDiffPopup); set waitvar 0
         }
 
@@ -5787,9 +5851,24 @@ proc close-more-options {} {
 proc newDiffBrowse {title widget} {
     global w
 
-    set foo [$widget get]
-    set initialdir [file dirname $foo]
-    set initialfile [file tail $foo]
+    debug-info "newDiffBrowse($title $widget)"
+    set n [string index $widget end]
+    set widgroot [string range $widget 0 end-1]
+    if {$n == 1} { set other 2 } elseif { $n == 2} { set other 1 }
+    set entrystuff [$widget get]
+    debug-info "$n: entrystuff $entrystuff"
+    if {$entrystuff != ""} {
+      set initialdir [file dirname $entrystuff]
+    } else {
+      set otherentrystuff [${widgroot}$other get]
+      if {$otherentrystuff ne ""} {
+        set initialdir [file dirname $otherentrystuff]
+      } else {
+        set initialdir [pwd]
+      }
+    }
+    debug-info "initialdir $initialdir"
+    set initialfile [file tail $entrystuff]
     set filename [tk_getOpenFile -title $title -initialfile $initialfile \
       -initialdir $initialdir]
     if {[string length $filename] > 0} {
@@ -6047,6 +6126,45 @@ proc write-report {command args} {
 }
 
 ###############################################################################
+# Report the version of wish
+###############################################################################
+proc about_wish {} {
+  global tk_patchLevel
+
+  set version $tk_patchLevel
+  set whichwish [info nameofexecutable]
+
+  set about_string "$whichwish\n\n"
+  append about_string "Tk version  $version"
+
+  tk_messageBox -title "About Wish" \
+    -message $about_string \
+    -parent . \
+    -type ok
+}
+
+###############################################################################
+# Report the version of diff
+###############################################################################
+proc about_diff {} {
+
+  set whichdiff [auto_execok diff]
+  if {[llength $whichdiff]} {
+    set whichdiff [join $whichdiff]
+    set commandline "diff -v"
+    catch {eval "exec $commandline"} output
+    set message "$whichdiff\n$output"
+  } else {
+    set message "diff was not found in your path!"
+  }
+
+  tk_messageBox -title "About Diff" \
+    -message $message \
+    -parent . \
+    -type ok
+}
+
+###############################################################################
 # Throw up an "about" window.
 ###############################################################################
 proc do-about {} {
@@ -6105,8 +6223,8 @@ proc do-usage {mode} {
     Plain file with conflict markers:
      	tkdiff -conflict FILE
 
-    Source control (AccuRev, BitKeeper, CVS, Subversion, Perforce, PVCS,
-      RCS, SCCS, ClearCase)
+    Source control (AccuRev, BitKeeper, ClearCase, CVS, Git, Mercurial, \
+      Perforce, PVCS, RCS, SCCS, Subversion)
      	tkdiff FILE
 	tkdiff -rREV FILE
 	tkdiff -rREV1 -rREV2 FILE
@@ -6125,7 +6243,10 @@ $g(name) detects and supports RCS, CVS, Subversion and SCCS by looking for a \
       directory with the same name. It detects and supports PVCS by looking \
       for a vcs.cfg file. It detects and supports AccuRev, Perforce and \
       ClearCase by looking for the environment variables named ACCUREV_BIN, \
-      P4CLIENT, and CLEARCASE_ROOT respectively.
+      P4CLIENT, and CLEARCASE_ROOT respectively. It detects Git by looking \
+      for a .git directory, but will only work when started in Git work-tree. \
+      Mercurial is supported by looking for a directory named ".hg" in the current \
+      directory or any of its ancestor directories.
 
 In the first form, tkdiff will present a dialog to allow you to choose the \
       files to diff interactively. At present this dialog only supports a \
@@ -6139,23 +6260,23 @@ In the second form, at least one of the arguments must be the name of a plain \
 
 In the remaining forms, <cmp>REV</cmp> (or <cmp>REV1</cmp> and \
       <cmp>REV2</cmp>) must be a valid revision number for <cmp>FILE</cmp>. \
-      Where AccuRev, RCS, CVS, Subversion, SCCS, PVCS or Perforce is implied \
+      When a source control system (RCS, CVS, etc.) is detected (see above) \
       but no revision number is specified, <cmp>FILE</cmp> is compared with \
-      the the revision most recently checked in.
+      the revision most recently checked in.
+
+Git <cmp>REV</cmp> (see man git-rev-parse):
+  -r <cmp>FILE</cmp>                   [compare with <cmp>HEAD</cmp>]
+  -r <cmp>HEAD</cmp> <cmp>FILE</cmp>        [compare with <cmp>HEAD</cmp>]
+  -r <cmp>HEAD^</cmp> <cmp>FILE</cmp>      [compare with parent of <cmp>HEAD</cmp>]
+  -r <cmp>HEAD~5</cmp> <cmp>FILE</cmp>    [compare with 5th parent of <cmp>HEAD</cmp>]
+  -r <cmp>HEAD~20</cmp> -r <cmp>HEAD^</cmp> <cmp>FILE</cmp>   [compare 20th parent and parent of <cmp>HEAD</cmp>]
+  -r 29329e <cmp>FILE</cmp>    [compare with commit 29329e (full/partial SHA1)]
+  -r v1.2.3 <cmp>FILE</cmp>      [compare with tag (UNTESTED)]
 
 To merge a file with conflict markers generated by "<cmp>merge</cmp>", \
       "<cmp>cvs</cmp>", or "<cmp>vmrg</cmp>", use \
       "<cmp>tkdiff -conflict FILE</cmp>". The file is split into two temporary \
       files which you can merge as usual (see below).
-
-For "<cmp>tkdiff FILE</cmp>" The CVS version has priority, followed by the \
-      Subversion version, followed by the SCCS version -- i.e. if a CVS \
-      directory is present, CVS; if not and a Subversion directory is \
-      present, Subversion; if not and an SCCS directory is present, SCCS is \
-      assumed; otherwise, if a CVS.CFG file is found, PVCS is assumed; \
-      otherwise RCS is assumed. If none of the above apply and the AccuRev \
-      environment variable ACCUREV_BIN is found, AccuRev is used. If P4CLIENT \
-      is found, Perforce is used. If CLEARCASE_ROOT is found, ClearCase is used.
 
 If the merge output filename is not specified, tkdiff will present a dialog \
       to allow you to choose the name of the merge output file.
@@ -6749,7 +6870,7 @@ proc do-edit {} {
 # platform-specific stuff
 ##########################################################################
 proc setAquaDialogStyle {toplevel} {
-    tk::unsupported::MacWindowStyle style $toplevel movableDBoxProc
+    tk::unsupported::MacWindowStyle style $toplevel moveableModal
 }
 
 ##########################################################################
@@ -6775,7 +6896,6 @@ proc simpleEd {command args} {
 
             menu $w.menubar
             $w configure -menu $w.menubar
-
             $w.menubar add cascade -label "File" -menu $w.menubar.fileMenu
             $w.menubar add cascade -label "Edit" -menu $w.menubar.editMenu
 
@@ -9495,17 +9615,17 @@ proc get_cde_params {} {
 proc get_aqua_params {} {
     global w
 
-    # This doesn't seem to do anything?
-    set w(selcolor) lightsteelblue
-
     # button highlightbackground has to be the same as background
     # or else there are little white boxes around the button "pill"
     option add *background #ebebeb userDefault
     option add *Button.highlightBackground #ebebeb userDefault
+    # That totally screws up the menus unless you fix it with this
+    option add *Menu.Background white
+    option add *Menu.Foreground black
 
     option add *Entry.HighlightThickness 2 userDefault
     option add *Entry.highlightBackground $w(selcolor) userDefault
-    #option add *Canvas.background #eeeeee userDefault
+    option add *Canvas.background #eeeeee userDefault
     option add *Entry.background #ffffff userDefault
     option add *Text.background white userDefault
 }
