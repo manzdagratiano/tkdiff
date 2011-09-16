@@ -72,8 +72,8 @@ if {[catch {tk windowingsystem} g(windowingSystem)]} {
 # time you run
 switch -- $::tcl_platform(platform) {
 windows {
-        if {[info exists env(TEMP)]} {
-            set opts(tmpdir) [file nativename $env(TEMP)]
+        if {[info exists ::env(TEMP)]} {
+            set opts(tmpdir) [file nativename $::env(TEMP)]
         } else {
             set opts(tmpdir) C:/temp
         }
@@ -83,8 +83,10 @@ windows {
         set opts(relief) flat
     }
 default {
-        if {[info exists env(TMPDIR)]} {
-            set opts(tmpdir) $env(TMPDIR)
+        if {[info exists ::env(TMPDIR)] && $g(windowingSystem) != "aqua"} {
+            # MacOS X sets TMPDIR to something like /var/folders/uC/uCFr1z6qESSEYkTuOsevX++++yw/-Tmp-/
+            # don't let it do that
+            set opts(tmpdir) $::env(TMPDIR)
         } else {
             set opts(tmpdir) /tmp
         }
@@ -97,15 +99,22 @@ default {
 
 # compute preferences file location. Note that TKDIFFRC can hold either
 # a directory or a file, though we document it as being a file name
-if {[info exists env(TKDIFFRC)]} {
-    set rcfile $env(TKDIFFRC)
+if {[info exists ::env(TKDIFFRC)]} {
+    set rcfile $::env(TKDIFFRC)
     if {[file isdirectory $rcfile]} {
         set rcfile [file join $rcfile $basercfile]
     }
-} elseif {[info exists env(HOME)]} {
-    set rcfile [file join $env(HOME) $basercfile]
+} elseif {[info exists ::env(HOME)]} {
+    set rcfile [file join $::env(HOME) $basercfile]
 } else {
     set rcfile [file join "/" $basercfile]
+}
+
+# Where should we start?  MacOSX apps want to start in / which is obnoxious
+if {[pwd] eq "/"} {
+    if {[info exists ::env(HOME)]} {
+       catch {cd $::env(HOME)}
+    }
 }
 
 # Try to find a pleasing native look for each platform.
@@ -121,6 +130,8 @@ destroy .native
 
 # Find out what the tk default is
 label .testlbl -text "LABEL"
+set w(background) [lindex [.testlbl cget -background] 0]
+set w(foreground) [lindex [.testlbl cget -foreground] 0]
 set labelfont [lindex [.testlbl configure -font] 3]
 destroy .testlbl
 
@@ -214,6 +225,7 @@ array set opts {
     ignoreblanksopt   "-b"
     ignoreblanks      0
     editor            ""
+    filetypes         {{{All Files} *} {{Text Files} .txt} {{TclFiles} .tcl}}
     geometry          "80x30"
     showcbs           1
     showln            1
@@ -612,18 +624,15 @@ proc popup-merge {{writeproc merge-write-file}} {
     debug-info "popup-merge ($writeproc)"
     global g
     global w
+    global opts
 
     if {$g(mergefileset)} {
         $writeproc
         return
     }
 
-    set types {
-        {{Text Files}         {.txt}}
-        {{All Files}         {*}}
-    }
-
-    set path [tk_getSaveFile -defaultextension "" -filetypes $types \
+    set path [tk_getSaveFile -defaultextension "" \
+      -filetypes $opts(filetypes) \
       -initialfile [file nativename $g(mergefile)]]
 
     if {[string length $path] > 0} {
@@ -2512,6 +2521,7 @@ proc build-toolbar {} {
     label $toolbar.mergechoicelbl -text "Merge:" -pady 0 -bd 2 -relief groove
 
     radiobutton $toolbar.m2_im -borderwidth 1 -indicatoron false \
+      -selectcolor $w(selcolor) \
       -image mergeChoice2Image -value 2 -variable g(toggle) -command \
       [list do-merge-choice 2] -takefocus 0
     radiobutton $toolbar.m2_tx -borderwidth 1 -indicatoron true -text "R" \
@@ -2519,6 +2529,7 @@ proc build-toolbar {} {
       -takefocus 0
 
     radiobutton $toolbar.m1_im -borderwidth 1 -indicatoron false \
+      -selectcolor $w(selcolor) \
       -image mergeChoice1Image -value 1 -variable g(toggle) -command \
       [list do-merge-choice 1] -takefocus 0
     radiobutton $toolbar.m1_tx -borderwidth 1 -indicatoron true -text "L" \
@@ -2526,6 +2537,7 @@ proc build-toolbar {} {
       -takefocus 0
 
     radiobutton $toolbar.m12_im -borderwidth 1 -indicatoron false \
+      -selectcolor $w(selcolor) \
       -image mergeChoice12Image -value 12 -variable g(toggle) -command \
       [list do-merge-choice 12] -takefocus 0
     radiobutton $toolbar.m12_tx -borderwidth 1 -indicatoron true -text "LR" \
@@ -2533,6 +2545,7 @@ proc build-toolbar {} {
       -takefocus 0
 
     radiobutton $toolbar.m21_im -borderwidth 1 -indicatoron false \
+      -selectcolor $w(selcolor) \
       -image mergeChoice21Image -value 21 -variable g(toggle) -command \
       [list do-merge-choice 21] -takefocus 0
     radiobutton $toolbar.m21_tx -borderwidth 1 -indicatoron true -text "RL" \
@@ -3059,21 +3072,15 @@ proc customize {} {
     pack $w(preferences).notebook -side top -fill x -pady 4
     set pagelist {}
 
-    # Radiobuttons without indicators look rather sucky on MacOSX, so
-    # we'll tweak the style for that platform
-    if {$::tcl_platform(os) == "Darwin"} {
-        set indicatoron true
-    } else {
-        set indicatoron false
-    }
-
+    # The relief makes these work, so we don't need to use the selcolor
     foreach page [list General Display Appearance] {
         set frame $w(preferences).f$page
         lappend pagelist $frame
         set rb $w(preferences).notebook.f$page
         radiobutton $rb -command "customize-selectPage $frame" \
+          -selectcolor $w(background) \
           -variable g(prefPage) -value $frame -height 2 -text $page \
-          -indicatoron $indicatoron -borderwidth 1
+          -indicatoron false -borderwidth 1
 
         pack $rb -side left
 
@@ -3092,7 +3099,7 @@ proc customize {} {
     # General
     set count 0
     set frame $w(preferences).fGeneral
-    foreach key {diffcmd ignoreblanksopt tmpdir editor geometry} {
+    foreach key {diffcmd ignoreblanksopt tmpdir editor filetypes geometry } {
         label $frame.l$count -text "$pref($key): " -anchor w
         set tmpopts($key) $opts($key)
         entry $frame.e$count -textvariable tmpopts($key) -width 50 -bd 2 \
@@ -3337,6 +3344,7 @@ proc customize-initLabels {} {
     set pref(geometry) {Text window size}
     set pref(tmpdir) {Directory for scratch files}
     set pref(editor) {Program for editing files}
+    set pref(filetypes) {Choice of file suffixes for file dialogs}
 
     set pref(fancyButtons) {Windows-style toolbar buttons}
     set pref(showlineview) {Show current line comparison window}
@@ -3479,7 +3487,7 @@ proc apply {{remark 0}} {
 
     # set opts to the values from tmpopts
     foreach key {autocenter autoselect chgtag colorcbs currtag deltag diffcmd \
-      difftag inlinetag editor fancyButtons geometry ignoreblanks \
+      difftag inlinetag editor fancyButtons filetypes geometry ignoreblanks \
       ignoreblanksopt instag overlaptag showcbs showlineview showln showmap \
       syncscroll tabstops tagcbs tagln tagtext textopt tmpdir toolbarIcons} {
         set opts($key) $tmpopts($key)
@@ -5493,13 +5501,22 @@ proc main {} {
     }
 
     if {$g(windowingSystem) == "x11"} {
-        if {! [get_cde_params]} {
-            if {$tk_version >= 8.5} {
-                option add *Menu.selectColor [option get . foreground foreground]
-             } else {
-                option add *Menu.selectColor [option get . hightlightbackground highlightbackground]
-                option add *Checkbutton.selectColor [option get . hightlightbackground highlightbackground]
-             }
+        if {[get_gtk_params]} {
+           debug-info "gtk"
+        } elseif {[get_cde_params]} {
+           debug-info "cde"
+        } else {
+           debug-info "x11 fallback"
+           set hlbg "#4a6984"
+           set hlfg "#ffffff"
+           #set w(selcolor) $hlbg
+           if {$tk_version >= 8.5} {
+             option add *Menu.selectColor $w(foreground)
+             option add *Checkbutton.selectColor ""
+             option add *Radiobutton.selectColor ""
+           } else {
+             option add *selectColor $hlbg
+           }
         }
     }
     if {$g(windowingSystem) == "aqua"} {
@@ -5768,7 +5785,6 @@ proc newDiffDialog {} {
             if {! [winfo exists .client]} {do-exit}
             wm withdraw $w(newDiffPopup); set waitvar 0
         }
-
         pack $commands.ok $commands.cancel -side left -fill none -expand y \
           -pady 4
 
@@ -5850,6 +5866,7 @@ proc close-more-options {} {
 ###############################################################################
 proc newDiffBrowse {title widget} {
     global w
+    global opts
 
     debug-info "newDiffBrowse($title $widget)"
     set n [string index $widget end]
@@ -5869,7 +5886,9 @@ proc newDiffBrowse {title widget} {
     }
     debug-info "initialdir $initialdir"
     set initialfile [file tail $entrystuff]
-    set filename [tk_getOpenFile -title $title -initialfile $initialfile \
+    set filename [tk_getOpenFile -title $title \
+      -filetypes $opts(filetypes) \
+      -initialfile $initialfile \
       -initialdir $initialdir]
     if {[string length $filename] > 0} {
         $widget delete 0 end
@@ -6023,11 +6042,7 @@ proc write-report {command args} {
             wm withdraw $w(reportPopup)
         }
     browse {
-            set types {
-                {{All Files}         {*}}
-            }
-
-            set path [tk_getSaveFile -defaultextension "" -filetypes $types \
+            set path [tk_getSaveFile \
               -initialfile $report(filename)]
 
             if {[string length $path] > 0} {
@@ -6562,6 +6577,12 @@ If the supplied string contains the string "\$file", it\'s treated as a whole \
 For example, in the case of NEdit or Emacs you can use "nc -line \$line \
      \$file" and "emacs +\$line \$file" respectively.
 
+<bld>$pref(filetypes)</bld>
+
+The choice of file suffixes you want to see in the file open and save dialogs \
+       A list of the form { {{All Files} *} {{Text Files} .txt} } and so on.
+
+
 <bld>$pref(geometry)</bld>
 
 This defines the default size, in characters of the two text windows. The \
@@ -6870,7 +6891,9 @@ proc do-edit {} {
 # platform-specific stuff
 ##########################################################################
 proc setAquaDialogStyle {toplevel} {
-    tk::unsupported::MacWindowStyle style $toplevel moveableModal
+    if {[catch {tk::unsupported::MacWindowStyle style $toplevel moveableModal}] } {
+        tk::unsupported::MacWindowStyle style $toplevel movableDBoxProc
+    }
 }
 
 ##########################################################################
@@ -9457,9 +9480,74 @@ proc internal_tooltips_PopDown {} {
     catch {destroy .tooltips_wind}
 }
 
-# Most of this was stolen from the "CDE" package by D. J. Hagberg.
-# I dig a couple more things out of the palette. -dar
+proc get_gtk_params { } {
+    global w
+    global tk_version
+  
+    if {! [llength [auto_execok xrdb]]} {
+      return 0
+    }
+    set pipe [open "|xrdb -q" r]
+    while {[gets $pipe ln] > -1} {
+      switch -glob -- $ln {
+        {\*Toplevel.background:*} {
+          #puts $ln
+          set bg [lindex $ln 1]
+        }
+        {\*Toplevel.foreground:*} {
+          #puts $ln
+          set fg [lindex $ln 1]
+        }
+        {\*Text.background:*} {
+          #puts $ln
+          set textbg [lindex $ln 1]
+        }
+        {\*Text.foreground:*} {
+          #puts $ln
+          set textfg [lindex $ln 1]
+        }
+        {\*Text.selectBackground:*} {
+          #puts $ln
+          set hlbg [lindex $ln 1]
+        }
+        {\*Text.selectForeground:*} {
+          #puts $ln
+        set hlfg [lindex $ln 1]
+        }
+      }
+    }
+    close $pipe
+  
+    if {! [info exists bg] || ! [info exists fg]} {
+        return 0
+    }
+    set w(selcolor) $hlbg
+    option add *Entry.Background $textbg
+    option add *Entry.Foreground $textfg
+    option add *Entry.selectBackground $hlbg
+    option add *Entry.selectForeground $hlfg
+    option add *Entry.readonlyBackground $bg
+    option add *Listbox.background $textbg
+    option add *Listbox.selectBackground $hlbg
+    option add *Listbox.selectForeground $hlfg
+    option add *Text.Background $textbg
+    option add *Text.Foreground $textfg
+    option add *Text.selectBackground $hlbg
+    option add *Text.selectForeground $hlfg
+    # Menu checkboxes
+    if {$tk_version >= 8.5} {
+       option add *Menu.selectColor $fg
+       option add *Checkbutton.selectColor ""
+       option add *Radiobutton.selectColor ""
+    } else {
+       option add *selectColor $w(selcolor)
+    }
+
+    return 1
+}
+
 proc get_cde_params {} {
+    global tk_version
     global w
 
     # Set defaults for all the necessary things
@@ -9468,22 +9556,19 @@ proc get_cde_params {} {
     set guifont [option get . buttonFontList buttonFontList]
     set txtfont [option get . FontSet FontSet]
     set listfont [option get . textFontList textFontList]
-    set textbg $bg
-    set textfg $fg
+
+    set textbg white
+    set textfg black
 
     # If any of these aren't set, I don't think we're in CDE after all
-    if {![string length $fg]} {
-        return 0
-    }
-    if {![string length $bg]} {
-        return 0
-    }
+    if {![string length $fg]} { return 0 }
+    if {![string length $bg]} { return 0 }
     if {![string length $guifont]} {
-        return 0
+      # For AIX
+      set guifont [option get . FontList FontList]
     }
-    if {![string length $txtfont]} {
-        return 0
-    }
+    if {![string length $guifont]} { return 0 }
+    if {![string length $txtfont]} { return 0 }
 
     set guifont [string trimright $guifont ":"]
     set txtfont [string trimright $txtfont ":"]
@@ -9505,6 +9590,7 @@ proc get_cde_params {} {
     set cur_rsrc ~/.dt/sessions/current/dt.resources
     set hom_rsrc ~/.dt/sessions/home/dt.resources
     if {[file readable $cur_rsrc] && [file readable $hom_rsrc]} {
+        # Both exist.  Use whichever is newer
         if {[file mtime $cur_rsrc] > [file mtime $hom_rsrc]} {
             if {[catch {open $cur_rsrc r} fh]} {
                 set fh ""
@@ -9557,15 +9643,6 @@ proc get_cde_params {} {
                     gets $fh iconbg ;#control panel bg too
                     close $fh
 
-                    option add *Entry.highlightColor $activetitle userDefault
-                    option add *selectColor $activetitle userDefault
-                    option add *Text.highlightColor $wkspc4 userDefault
-                    option add *Dialog.Background $menubg userDefault
-                    option add *Menu.Background $menubg userDefault
-                    option add *Menubutton.Background $menubg userDefault
-                    option add *Menu.activeBackground $menubg userDefault
-                    option add *Menubutton.activeBackground $menubg userDefault
-                    set w(selcolor) $activetitle
                 }
             }
         }
@@ -9576,34 +9653,56 @@ proc get_cde_params {} {
         return 0
     }
 
-    #option add *Button.font $guifont userDefault
-    #option add *Label.font $guifont userDefault
-    #option add *Menu.font $guifont userDefault
-    #option add *Menubutton.font $guifont userDefault
-    #option add *Dialog.msg.font $dlgfont userDefault
+    if {[info exists activetitle]} {
+      set hlbg $activetitle
+    } else {
+      set hlbg $fg
+    }
+    set w(selcolor) $hlbg
+    option add *Button.activeBackground $bg
+    option add *Button.activeForeground $fg
+    option add *Canvas.Background $shadow
+    option add *Canvas.Foreground black
+    option add *Dialog.Background $menubg
+    option add *Entry.Background $textbg
+    option add *Entry.Foreground $textfg
+    option add *Entry.readonlyBackground $bg
+    option add *Entry.highlightBackground $bg
+    option add *Entry.highlightColor $activetitle
+    option add *Listbox.background $textbg
+    option add *Listbox.selectBackground $w(selcolor)
+    option add *Listbox.selectForeground $fg
+    option add *Scrollbar.activeBackground $bg
+    option add *Scrollbar.troughColor $shadow
+    option add *Text.Background $textbg
+    option add *Text.Foreground $textfg
+    option add *Text.highlightBackground $bg
+    option add *Text.highlightColor $wkspc4
 
-    option add *Text.Background $textbg userDefault
-    option add *Entry.Background $textbg userDefault
-    option add *Text.Foreground $textfg userDefault
-    option add *Entry.Foreground $textfg userDefault
-    option add *Button.activeBackground $bg userDefault
-    option add *Button.activeForeground $fg userDefault
-    option add *Scrollbar.activeBackground $bg userDefault
-    option add *Scrollbar.troughColor $shadow userDefault
-    option add *Canvas.Background $shadow userDefault
+    option add *Menu.borderWidth 1
+    option add *Menu.Background $menubg
+    option add *Menu.activeBackground $menubg
+    option add *Menu.activeForeground $fg
+    option add *Menubutton.Background $menubg
+    option add *Menubutton.activeBackground $menubg
+    option add *Menubutton.activeForeground $fg
 
-    # These menu configs work if you use native menus.
-    option add *Menu.borderWidth 1 userDefault
-    option add *Menu.activeForeground $fg userDefault
-    option add *Menubutton.activeForeground $fg userDefault
+    # Menu checkboxes
+    if {$tk_version >= 8.5} {
+      # This makes it look like the native CDE checkbox
+      option add *Menu.selectColor $fg
+      option add *Checkbutton.offRelief sunken
+      option add *Checkbutton.selectColor ""
+      option add *Radiobutton.selectColor ""
+      option add *Checkbutton.activeBackground $bg
+      option add *Checkbutton.activeForeground $fg
+    } else {
+      option add *selectColor $w(selcolor)
+    }
 
-    # This draws a thin border around buttons
-    #option add *highlightBackground $bg userDefault
     # Suppress the border
     option add *HighlightThickness 0 userDefault
     # Add it back for text and entry widgets
-    option add *Text.highlightBackground $bg userDefault
-    option add *Entry.highlightBackground $bg userDefault
     option add *Text.HighlightThickness 2 userDefault
     option add *Entry.HighlightThickness 1 userDefault
 
