@@ -111,7 +111,7 @@ if {[info exists ::env(TKDIFFRC)]} {
 }
 
 # Where should we start?  MacOSX apps want to start in / which is obnoxious
-if {[pwd] eq "/"} {
+if {[pwd] == "/"} {
     if {[info exists ::env(HOME)]} {
        catch {cd $::env(HOME)}
     }
@@ -365,9 +365,9 @@ proc do-exit {{returncode {}}} {
 # Modal error dialog.
 ###############################################################################
 proc do-error {msg} {
+    debug-info "do-error ($msg)"
     global g
 
-    debug-info "do-error ($msg)"
     tk_messageBox -message "$msg" -title "$g(name): Error" -icon error -type ok
 }
 
@@ -394,7 +394,7 @@ proc fatal-error {msg} {
 # Return the name of a temporary file
 ###############################################################################
 proc tmpfile {n} {
-    debug-info "tmpfile ($n)"
+    #debug-info "tmpfile ($n)"
     global g opts
     global uniq
     set uniq [expr ($uniq + 1) ]
@@ -408,6 +408,7 @@ proc tmpfile {n} {
     }
     close $fid
     lappend g(tempfiles) $tmpfile
+    debug-info "temp file $tmpfile"
     return $tmpfile
 }
 
@@ -416,13 +417,13 @@ proc tmpfile {n} {
 # Returns "$stdout $stderr $exitcode" if exit code != 0
 ###############################################################################
 proc run-command {cmd} {
-    debug-info "run-command ($cmd)"
+    #debug-info "run-command ($cmd)"
     global opts errorCode
 
     set stderr ""
     set exitcode 0
     set errfile [tmpfile "r"]
-
+    debug-info "$cmd"
     set failed [catch "$cmd \"2>$errfile\"" stdout]
     # Read stderr output
     catch {
@@ -510,7 +511,6 @@ proc max {a b} {
 # Toggle change bars
 ###############################################################################
 proc do-show-changebars {{show {}}} {
-    debug-info "do-show-changebars ($show)"
     global opts
     global w
 
@@ -566,6 +566,7 @@ proc do-show-linenumbers {{showLn {}}} {
 # Show line numbers in info windows
 ###############################################################################
 proc draw-line-numbers {} {
+    debug-info "draw-line-numbers ()"
     global g
     global w
 
@@ -621,7 +622,7 @@ proc draw-line-numbers {} {
 # Pop up a window for file merge.
 ###############################################################################
 proc popup-merge {{writeproc merge-write-file}} {
-    debug-info "popup-merge ($writeproc)"
+    debug-info "popup-merge ($writeproc $merge-write-file)"
     global g
     global w
     global opts
@@ -788,7 +789,6 @@ proc get-file-rev {f index {r ""}} {
             append cmd ".exe"
         }
         set finfo(lbl,$index) "$f (CVS $rev)"
-        debug-info "  Setting lbl $finfo(lbl,$index)"
         die-unless "exec $cmd update -p $cvsopt \"$f\"" "\"$finfo(pth,$index)\""
     } elseif {[file isdirectory [file join $dirname .svn]]} {
         set cmd "svn"
@@ -797,12 +797,10 @@ proc get-file-rev {f index {r ""}} {
         }
         if {"$r" == "" || "$rev" == "rBASE"} {
             set finfo(lbl,$index) "$f (SVN BASE)"
-            debug-info "  Setting lbl $finfo(lbl,$index)"
             die-unless "exec cat \"$dirname/.svn/text-base/$tailname.svn-base\"" \
               $finfo(pth,$index)
         } else {
             set finfo(lbl,$index) "$f (SVN $rev)"
-            debug-info "  Setting lbl $finfo(lbl,$index)"
             die-unless "exec $cmd cat $svnopt \"$f\"" $finfo(pth,$index)
         }
     } elseif {[file isdirectory [file join $dirname .git]]} {
@@ -811,20 +809,20 @@ proc get-file-rev {f index {r ""}} {
             append cmd ".exe"
         }
         # Won't work if you aren't actually in the work tree
+        debug-info "exec $cmd rev-parse --is-inside-work-tree"
         if {[catch {eval "exec $cmd rev-parse --is-inside-work-tree"} err] } {
            puts stderr "$err"
            puts stderr "Please start in a git work tree."
            exit 1
         }
+        debug-info "exec $cmd rev-parse --show-prefix"
         set prefix [exec $cmd rev-parse --show-prefix]
         if {"$r" == "" || "$rev" == "rBASE"} {
             set finfo(lbl,$index) "$f (GIT BASE)"
-            debug-info "  Setting lbl $finfo(lbl,$index)"
             die-unless "exec $cmd show \":$prefix$f\"" \
               $finfo(pth,$index)
         } else {
             set finfo(lbl,$index) "$f (GIT $rev)"
-            debug-info "  Setting lbl $finfo(lbl,$index)"
             die-unless "exec $cmd show \"$gitopt$prefix$f\"" $finfo(pth,$index)
         }
     } elseif {[regexp {://} $f]} {
@@ -849,14 +847,12 @@ proc get-file-rev {f index {r ""}} {
 	set cmd "bk"
 	set opt $bkopt
 	set finfo(lbl,$index) "$f (bitkeeper $rev)"
-	debug-info "  Setting lbl $finfo(lbl,$index)"
         if {$::tcl_platform(platform) == "windows"} {
             append cmd ".exe"
         }
         die-unless "exec $cmd get -p $opt \"$f\"" "\"$finfo(pth,$index)\""
     } elseif {[file isdirectory [file join $dirname SCCS]]} {
 	set finfo(lbl,$index) "$f (SCCS $rev)"
-	debug-info "  Setting lbl $finfo(lbl,$index)"
 	set opt $sccsopt
 	set cmd "sccs"
         if {$::tcl_platform(platform) == "windows"} {
@@ -869,7 +865,6 @@ proc get-file-rev {f index {r ""}} {
             append cmd ".exe"
         }
         set finfo(lbl,$index) "$f (RCS $rev)"
-        debug-info "  Setting lbl $finfo(lbl,$index)"
         die-unless "exec $cmd -p$rcsopt \"$f\"" "\"$finfo(pth,$index)\""
     } elseif {[file exists [file join $dirname $tailname,v]]} {
         set cmd "co"
@@ -877,7 +872,6 @@ proc get-file-rev {f index {r ""}} {
             append cmd ".exe"
         }
         set finfo(lbl,$index) "$f (RCS $rev)"
-        debug-info "  Setting lbl $finfo(lbl,$index)"
         die-unless "exec $cmd -p$rcsopt \"$f\"" \""$finfo(pth,$index)\""
     } elseif {[file exists [file join $dirname vcs.cfg]] || [info exists ::env(VCSCFG)]} {
         set cmd "get"
@@ -885,7 +879,6 @@ proc get-file-rev {f index {r ""}} {
             append cmd ".exe"
         }
         set finfo(lbl,$index) "$f (PVCS $rev)"
-        debug-info "  Setting lbl $finfo(lbl,$index)"
         die-unless "exec $cmd -p $pvcsopt \"$f\"" "\"$finfo(pth,$index)\""
         filterCRCRLF $finfo(pth,$index)
     } elseif {[info exists ::env(P4CLIENT)] || [info exists ::env(P4CONFIG)]} {
@@ -894,7 +887,6 @@ proc get-file-rev {f index {r ""}} {
             append cmd ".exe"
         }
         set finfo(lbl,$index) "$f (Perforce $rev)"
-        debug-info "  Setting lbl $finfo(lbl,$index)"
         die-unless "exec $cmd print -q \"$p4file\"" "\"$finfo(pth,$index)\""
     } elseif {[info exists ::env(ACCUREV_BIN)]} {
         set cmd "accurev"
@@ -902,12 +894,11 @@ proc get-file-rev {f index {r ""}} {
             append cmd ".exe"
         }
         set finfo(lbl,$index) "$f ($acrev)"
-        debug-info "  Setting lbl $finfo(lbl,$index)"
         die-unless "exec $cmd cat $acopt \"$f\"" "\"$finfo(pth,$index)\""
     } elseif {[info exists ::env(CLEARCASE_ROOT)]} {
         set cmd "cleartool"
         set finfo(lbl,$index) "$f (ClearCase $rev)"
-        debug-info "  Setting lbl $finfo(lbl,$index)"
+        debug-info "exec $cmd ls -s $f"
         catch {exec $cmd ls -s $f} ctls
         # get the path name to file minus the revision info
         # (either CHECKEDOUT or a number)
@@ -915,6 +906,7 @@ proc get-file-rev {f index {r ""}} {
             puts "Couldn't parse ct ls output '$ctls'"
             exit
         }
+        debug-info "exec $cmd lshistory -last 50 $f"
         catch {exec $cmd lshistory -last 50 $f} ctlshistory
         set lines [split $ctlshistory "\n"]
         set predecessor ""
@@ -951,11 +943,9 @@ proc get-file-rev {f index {r ""}} {
             # in hg, the revision for cat defaults to the parent revision
             # of the working directory
             set finfo(lbl,$index) "$f (HG PARENT)"
-            debug-info "  Setting lbl $finfo(lbl,$index)"
             die-unless "exec $cmd cat $f" $finfo(pth,$index)
         } else {
             set finfo(lbl,$index) "$f (HG $rev)"
-            debug-info "  Setting lbl $finfo(lbl,$index)"
             die-unless "exec $cmd cat $hgopt $f" $finfo(pth,$index)
         }
     } else {
@@ -970,6 +960,7 @@ proc get-file-rev {f index {r ""}} {
 }
 
 proc is-mercurial-repository {dirname} {
+    debug-info "is-mercurial-repository ($dirname)"
     # check for a .hg directory in all parent directories
     set dirname [file normalize $dirname]
     set prevdir {}
@@ -983,9 +974,11 @@ proc is-mercurial-repository {dirname} {
 }
 
 proc sccs-is-bk {} {
+    debug-info "sccs-is-bk ()"
     set cmd [auto_execok "bk"]
     set result 0
     if {[string length $cmd] > 0} {
+        debug-info "exec bk root"
         if {![catch {exec bk root} error]} {
             set result 1
         }
@@ -1015,7 +1008,6 @@ proc get-file {f index} {
     # Header above each file - use filename unless
     # user has specified one with -L
     set finfo(lbl,$index) "$f"
-    debug-info "  Setting lbl  $finfo(lbl,$index)"
     if {$finfo(userlbl,$index) != {}} {
         set finfo(lbl,$index) $finfo(userlbl,$index)
         debug-info "  User label: $finfo(lbl,$index)"
@@ -1093,6 +1085,9 @@ proc commandline {} {
         "^-u$"  {
                 # Ignore flag from "svn diff --diff-cmd=tkdiff"
             }
+        "^-d$"  {
+                set g(debug) t
+            }
         "^-psn" {
                 # Ignore the Carbon Process Serial Number
                 set argv [lreplace $argv $argindex $argindex]
@@ -1113,7 +1108,7 @@ proc commandline {} {
 
     # Add our counters to the global array
     # Now check how many revision and file args we have.
-    debug-info "  $pths files, $revs revisions"
+    #debug-info " $pths files, $revs revisions"
     # Maybe adjustment is needed
     if {$revs == 1 && $pths == 0} {
        # tkdiff -r FILE; same as tkdiff FILE
@@ -1131,7 +1126,7 @@ proc commandline {} {
        unset finfo(revs,2)
     }
     # What have we got now?
-    debug-info "  $pths files, $revs revisions"
+    debug-info " $pths files, $revs revisions"
     if {$revs == 0 && $pths == 0} {
         # Return "empty" flag, and we'll do a pop-up
         return 1
@@ -1151,7 +1146,7 @@ proc commandline {} {
 # Process the arguments, whether from the command line or from the dialog
 ###############################################################################
 proc assemble-args {} {
-    debug-info "assemble-args"
+    debug-info "assemble-args ()"
     global finfo
     global opts
     global g
@@ -1159,10 +1154,10 @@ proc assemble-args {} {
     if {$g(ancfile) != ""} {
         set g(ancfileset) 1
     }
-    debug-info " conflict: $g(conflictset)"
-    debug-info " ancestor: $g(ancfileset) $g(ancfile)"
-    debug-info " mergefile set: $g(mergefileset) $g(mergefile)"
-    debug-info " diff command: $opts(diffcmd) "
+    #debug-info " conflict: $g(conflictset)"
+    #debug-info " ancestor: $g(ancfileset) $g(ancfile)"
+    #debug-info " mergefile set: $g(mergefileset) $g(mergefile)"
+    #debug-info " diff command: $opts(diffcmd) "
 
     # Count up how many files and revs we got from the GUI or commandline
     set pths 0
@@ -1261,7 +1256,7 @@ proc assemble-args {} {
     }
 
     set finfo(title) "[file tail $finfo(lbl,1)] vs. [file tail $finfo(lbl,2)]"
-    debug-info "  Setting title $finfo(title)"
+    #debug-info " Setting title $finfo(title)"
     set rootname [file rootname $finfo(pth,1)]
     #    set path          [file dirname          $finfo(pth,1)]
     set path [pwd]
@@ -1270,10 +1265,7 @@ proc assemble-args {} {
         set g(mergefile) [file join $path "${rootname}-merge$suffix"]
     }
     set g(initOK) 1
-    foreach inf [lsort [array names finfo]] {
-        debug-info "    $inf: $finfo($inf)"
-    }
-    debug-info " $revs revs  $pths files"
+    #debug-info " $revs revs  $pths files"
 
     wm title . "$finfo(title) - $g(name) $g(version)"
     return 0
@@ -1283,7 +1275,7 @@ proc assemble-args {} {
 # Set up the display
 ###############################################################################
 proc create-display {} {
-    debug-info "create-display"
+    debug-info "create-display ()"
 
     global g opts bg tk_version
     global w
@@ -1423,7 +1415,7 @@ proc show-popupMenu {x y} {
 # build the right-click popup menu
 ###############################################################################
 proc build-popupMenu {} {
-    debug-info "build-popupMenu"
+    debug-info "build-popupMenu ()"
     global w g
 
     # this routine assumes the other windows already exist...
@@ -1524,7 +1516,7 @@ proc pane_drag {win x} {
 # sort of fluff)
 ###############################################################################
 proc build-client {} {
-    debug-info "build-client"
+    debug-info "build-client ()"
     global g
     global w
     global opts
@@ -1569,7 +1561,7 @@ proc build-client {} {
 
     # we'll create each widget twice; once for the left side
     # and once for the right.
-    debug-info "  Assigning labels to headers"
+    debug-info " Assigning labels to headers"
     scan $opts(geometry) "%dx%d" width height
     label $w(LeftLabel) -bd 1 -relief flat -textvariable finfo(lbl,1) -width $width
     label $w(RightLabel) -bd 1 -relief flat -textvariable finfo(lbl,2) -width $width
@@ -1994,7 +1986,7 @@ set text_widget_proc {
 # create (if necessary) and show the find dialog
 ###############################################################################
 proc show-find {} {
-    debug-info "show-find"
+    debug-info "show-find ()"
     global w g
     global tcl_platform
 
@@ -2127,6 +2119,7 @@ proc do-copy {} {
 # search for the text in the find dialog
 ###############################################################################
 proc do-find {} {
+    debug-info "do-find ()"
     global g
     global w
 
@@ -2184,7 +2177,7 @@ proc do-find {} {
 # Build the menu bar
 ###############################################################################
 proc build-menubar {} {
-    debug-info "build-menubar"
+    debug-info "build-menubar ()"
     global g
     global opts
     global w
@@ -2429,7 +2422,7 @@ proc showTooltip {which w} {
 # Build the toolbar, in text or image mode
 ###############################################################################
 proc build-toolbar {} {
-    debug-info "build-toolbar"
+    debug-info "build-toolbar ()"
     global w g
     global opts
 
@@ -2606,7 +2599,6 @@ proc build-toolbar {} {
 }
 
 proc pack-toolbuttons {toolbar} {
-    #debug-info "pack-toolbuttons ($toolbar)"
     global opts
 
     if {$opts(toolbarIcons)} {
@@ -2661,7 +2653,7 @@ proc pack-toolbuttons {toolbar} {
 }
 
 proc reconfigure-toolbar {} {
-    debug-info "reconfigure-toolbar"
+    debug-info "reconfigure-toolbar ()"
     global w
 
     foreach button [winfo children $w(toolbar)] {
@@ -2672,7 +2664,7 @@ proc reconfigure-toolbar {} {
 }
 
 proc build-status {} {
-    debug-info "build-status"
+    debug-info "build-status ()"
     global w
     global g
 
@@ -3029,7 +3021,7 @@ proc diffmark {option {diff -1}} {
 # Customize the display (among other things).
 ###############################################################################
 proc customize {} {
-    debug-info "customize"
+    debug-info "customize ()"
     global pref
     global g
     global w
@@ -3407,12 +3399,12 @@ proc apply {{remark 0}} {
     set gridsize [wm grid .]
     set gridx [lindex $gridsize 2]
     set gridy [lindex $gridsize 3]
-    debug-info " wm grid is $gridx x $gridy"
+    #debug-info " wm grid is $gridx x $gridy"
 
     set maxunitsx [expr {$screenWidth / $gridx}]
     set maxunitsy [expr {$screenHeight / $gridy}]
-    debug-info "   max X is $maxunitsx units"
-    debug-info "   max Y is $maxunitsy units"
+    #debug-info "   max X is $maxunitsx units"
+    #debug-info "   max Y is $maxunitsy units"
     set halfmax [expr {$maxunitsx / 2}]
 
     if {$tmpopts(geometry) == "" || [catch {scan $tmpopts(geometry) \
@@ -3420,9 +3412,9 @@ proc apply {{remark 0}} {
         do-error "invalid geometry setting: $tmpopts(geometry)"
         return
     }
-    debug-info " width $width  halfmax $halfmax"
+    #debug-info " width $width  halfmax $halfmax"
     set maxw [expr {$halfmax - 18}]
-    debug-info " maxw $maxw"
+    #debug-info " maxw $maxw"
     if {$width > $maxw} {
         set width $maxw
     }
@@ -3527,7 +3519,7 @@ proc apply {{remark 0}} {
 # Save customization changes.
 ###############################################################################
 proc save {} {
-    debug-info "save"
+    debug-info "save ()"
     global g
     global tmpopts rcfile tcl_platform
     global pref
@@ -3971,7 +3963,7 @@ proc diff-size {pos version {screen 0}} {
 # Toggle showing merge preview or not
 ###############################################################################
 proc do-show-merge {{showMerge ""}} {
-    debug-info "do-show-merge ($showMerge)"
+    #debug-info "do-show-merge ($showMerge)"
     global g
     global w
 
@@ -3992,7 +3984,7 @@ proc do-show-merge {{showMerge ""}} {
     } else {
         wm withdraw $w(merge)
     }
-    debug-info "  ...restore-cursor from do-show-merge"
+    #debug-info "  ...restore-cursor from do-show-merge"
     restore-cursor
 }
 
@@ -4000,7 +3992,7 @@ proc do-show-merge {{showMerge ""}} {
 # Create Merge preview window
 ###############################################################################
 proc merge-create-window {} {
-    debug-info "merge-create-window"
+    debug-info "merge-create-window ()"
     global opts
     global w
     global g
@@ -4114,7 +4106,7 @@ proc merge-create-window {} {
 # Not so good if it has changed.
 ###############################################################################
 proc merge-read-file {} {
-    debug-info "merge-read-file"
+    debug-info "merge-read-file ()"
     global finfo
     global w
 
@@ -4680,7 +4672,7 @@ proc map-seek {y} {
 # is 0).
 ###############################################################################
 proc move {value {relative 1} {setpos 1}} {
-    #debug-info "move $value $relative $setpos"
+    #debug-info "move ($value $relative $setpos)"
     global g
     global w
 
@@ -4717,7 +4709,7 @@ proc move {value {relative 1} {setpos 1}} {
 }
 
 proc update-display {} {
-    #debug-info "update-display"
+    debug-info "update-display ()"
     global g
     global w
 
@@ -4967,7 +4959,7 @@ proc buttons {{newstate "normal"}} {
 # Wipe the slate clean...
 ###############################################################################
 proc wipe {} {
-    debug-info "wipe"
+    debug-info "wipe ()"
     global g
 
     set g(pos) 0
@@ -4983,7 +4975,7 @@ proc wipe {} {
 # Wipe all data and all windows
 ###############################################################################
 proc wipe-window {} {
-    debug-info "wipe-window"
+    debug-info "wipe-window ()"
     global g
     global w
 
@@ -5024,7 +5016,7 @@ proc wipe-window {} {
 # Mark difference regions and build up the combobox
 ###############################################################################
 proc mark-diffs {} {
-    debug-info "mark-diffs"
+    debug-info "mark-diffs ()"
     global g
     global w
 
@@ -5036,7 +5028,7 @@ proc mark-diffs {} {
     # ain't this clever? We want to update the display as soon as
     # we've marked enough diffs to fill the display so the user will
     # have the impression we're fast. But, we don't want this
-    # want this code to slow us down too much, so we'll put the
+    # code to slow us down too much, so we'll put the
     # code in a variable and delete it when its no longer needed.
     set hack {
         # for now, just pick a number out of thin air. Ideally
@@ -5072,10 +5064,9 @@ proc mark-diffs {} {
 # start a new diff from the popup dialog
 ###############################################################################
 proc do-new-diff {} {
+    debug-info "do-new-diff ()"
     global g
     global finfo
-
-    debug-info "do-new-diff"
 
     set g(mergefileset) 0
     set g(mergefile) ""
@@ -5092,9 +5083,9 @@ proc do-new-diff {} {
     # Put them together into a command
     if {[assemble-args] != 0} return
 
-    foreach inf [lsort [array names finfo]] {
-        debug-info "    $inf: $finfo($inf)"
-    }
+    #foreach inf [lsort [array names finfo]] {
+        #debug-info "    $inf: $finfo($inf)"
+    #}
 
     set g(disableSyncing) 1 ;# turn off syncing until things settle down
 
@@ -5106,7 +5097,7 @@ proc do-new-diff {} {
     # do the diff
     do-diff
 
-    debug-info "   move first 1 1  from do-new-diff"
+    #debug-info "   move first 1 1  from do-new-diff"
     move first 1 1
 
     #debug-info "    ...restore-cursor from do-new-diff"
@@ -5121,7 +5112,7 @@ proc do-new-diff {} {
 # Remark difference regions...
 ###############################################################################
 proc remark-diffs {} {
-    debug-info "remark-diffs"
+    debug-info "remark-diffs ()"
     global g
     global w
     global opts
@@ -5191,7 +5182,6 @@ proc show-info {message} {
     global g
 
     set g(statusInfo) $message
-    debug-info "show-info: $message"
     update idletasks
 }
 
@@ -5211,7 +5201,7 @@ proc debug-info {message} {
 # Compute differences (start over, basically).
 ###############################################################################
 proc rediff {} {
-    debug-info "\nrediff"
+    debug-info "rediff ()"
     global g
     global opts
     global finfo
@@ -5374,7 +5364,7 @@ proc rediff {} {
 # Set the X cursor to "watch" for a window and all of its descendants.
 ###############################################################################
 proc watch-cursor {args} {
-    debug-info "-> watch-cursor ($args)"
+    #debug-info "watch-cursor ($args)"
     global current
     global w
 
@@ -5389,7 +5379,7 @@ proc watch-cursor {args} {
 # Restore the X cursor for a window and all of its descendants.
 ###############################################################################
 proc restore-cursor {args} {
-    debug-info "-> restore-cursor ($args)"
+    #debug-info "restore-cursor ($args)"
     global current
     global w
 
@@ -5418,9 +5408,9 @@ proc check-error {result output} {
 # numerically speaking.
 ###############################################################################
 proc recompute-diff {} {
-
-    debug-info "recompute-diff"
+    debug-info "recompute-diff ()"
     global g
+
     set current $g(pos)
     debug-info "current position $g(pos)"
 
@@ -5434,7 +5424,7 @@ proc recompute-diff {} {
 # Flash the "rediff" button and then kick off a rediff.
 ###############################################################################
 proc do-diff {} {
-    debug-info "do-diff"
+    debug-info "do-diff ()"
     global g finfo map errorInfo
     global opts
 
@@ -5446,7 +5436,6 @@ proc do-diff {} {
             catch {$map blank}
         }
 
-        #assemble-args
         rediff
         merge-read-file
         merge-add-marks
@@ -5527,7 +5516,6 @@ proc main {} {
     wipe
 
     set cmd_empty [commandline]
-    debug-info "  main: commandline returned $cmd_empty"
     if {! $cmd_empty} {
         assemble-args
     } else {
@@ -5878,7 +5866,7 @@ proc newDiffBrowse {title widget} {
       set initialdir [file dirname $entrystuff]
     } else {
       set otherentrystuff [${widgroot}$other get]
-      if {$otherentrystuff ne ""} {
+      if {$otherentrystuff != ""} {
         set initialdir [file dirname $otherentrystuff]
       } else {
         set initialdir [pwd]
@@ -6223,9 +6211,9 @@ You should have received a copy of the GNU General Public License along with \
 # Throw up a "command line usage" window.
 ###############################################################################
 proc do-usage {mode} {
+    debug-info "do-usage ($mode)"
     global g
 
-    debug-info "do-usage ($mode)"
     set usage {
     $g(name) may be started in any of the following ways:
 
@@ -6249,6 +6237,7 @@ proc do-usage {mode} {
 	-a ANCESTORFILE 
 	-o MERGEOUTPUTFILE 
 	-L LEFT_FILE_LABEL [-L RIGHT_FILE_LABEL]
+        -d debug
     }
 
     set usage [subst -nobackslashes -nocommands $usage]
@@ -6858,6 +6847,7 @@ proc purge-all-tags {w start end} {
 
 # Open one of the diffed files in an editor if possible
 proc do-edit {} {
+    debug-info "do-edit ()"
     global g
     global opts
     global finfo
@@ -6880,8 +6870,10 @@ proc do-edit {} {
             set line [lindex [extract $g(currdiff)] [expr {($fileno-1) *2+1}]]
             set file $finfo(pth,$fileno)
             eval set commandline \"$opts(editor) &\"
+            debug-info "exec $commandline"
             eval exec $commandline
         } else {
+            debug-info "exec $opts(editor) \"{$finfo(pth,$fileno)}\" &"
             eval exec $opts(editor) "{$finfo(pth,$fileno)}" &
         }
     }
@@ -6900,6 +6892,7 @@ proc setAquaDialogStyle {toplevel} {
 # A simple editor, from Bryan Oakley.
 ##########################################################################
 proc simpleEd {command args} {
+    debug-info "simpleEd ($command $args)"
     global textfont
 
     switch -- $command {
