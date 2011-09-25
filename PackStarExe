@@ -1,0 +1,38 @@
+#!/bin/sh
+
+# This makes tkdiff.exe for Windows.  It will run perfectly well on
+# Linux - in fact I couldn't get it to run on Windows.
+# Have tclkit for Linux and sdx (platform-independent) in your PATH.
+# Have tclkit.exe for Windows somewhere (specify by $Tclkit variable).
+
+Tclkit=$HOME/tclkits/Windows/tclkit-8.5.9-win32.upx.exe
+
+rm -f tkdiff.exe
+rm -rf tkdiff.vfs
+rm tkdiff.tcl
+
+echo "Making tkdiff.tcl into a starkit"
+# It has to have a .tcl extension
+ln -s tkdiff tkdiff.tcl
+sdx qwrap tkdiff.tcl
+if [ $? -gt 0 ]; then
+  echo "sdx qwrap failed"
+  exit 1
+fi
+
+echo "Unwrapping the kit"
+sdx unwrap tkdiff.kit
+if [ $? -gt 0 ]; then
+  echo "sdx unwrap failed"
+  exit 1
+fi
+echo "Copying icons into the kit"
+cp DeltaGold.ico tkdiff.vfs/tclkit.ico
+#cp DeltaBlue.ico tkdiff.vfs/tclkit.ico
+
+#exit
+
+echo "Converting the kit into a runtime"
+sdx wrap tkdiff.kit -runtime $Tclkit
+mv tkdiff.kit tkdiff.exe
+

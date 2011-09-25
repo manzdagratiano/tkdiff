@@ -1,0 +1,51 @@
+#!/bin/sh
+
+# http://code.google.com/p/tclkit/
+# http://rkeene.org/projects/info/wiki/Tclkits
+
+Tclkit=$HOME/tclkits/MacOSX/tclkit-8.5.9-macosx-universal
+#Tclkit=$HOME/tclkits/MacOSX/tclkit-darwin-univ-aqua
+
+echo "Cleaning up"
+rm -f tkdiff.kit
+rm -rf tkdiff.vfs
+rm -rf TkDiff.app
+
+echo "Making tkdiff into a starkit"
+# Make a .kit
+sdx qwrap tkdiff
+if [ $? -gt 0 ]; then
+  echo "sdx qwrap failed"
+  exit 1
+fi
+
+# Open it into a directory tree
+echo "Unwrapping the kit"
+sdx unwrap tkdiff.kit
+if [ $? -gt 0 ]; then
+  echo "sdx unwrap failed"
+  exit 1
+fi
+rm -f tkdiff.kit
+
+mkdir tkdiff.vfs/lib/tkdiff
+cp tkdiff tkdiff.vfs/lib/tkdiff
+rm tkdiff.vfs/lib/tkdiff/tkdiff
+
+# To test:
+#tclkit tkdiff.vfs/main.tcl
+
+echo "Converting the kit into a runtime"
+sdx wrap tkdiff.kit -runtime $Tclkit
+
+echo "Making TkDiff.app"
+mkdir TkDiff.app
+mkdir TkDiff.app/Contents
+mkdir TkDiff.app/Contents/MacOS
+mkdir TkDiff.app/Contents/Resources
+
+echo "Copying tkdiff.kit, icons and plist into the app"
+cp Info.plist TkDiff.app/Contents
+cp Delta.icns TkDiff.app/Contents/Resources
+mv tkdiff.kit TkDiff.app/Contents/MacOS/tkdiff
+
