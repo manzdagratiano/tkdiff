@@ -622,7 +622,7 @@ proc draw-line-numbers {} {
 # Pop up a window for file merge.
 ###############################################################################
 proc popup-merge {{writeproc merge-write-file}} {
-    debug-info "popup-merge ($writeproc $merge-write-file)"
+    debug-info "popup-merge ($writeproc)"
     global g
     global w
     global opts
@@ -790,19 +790,17 @@ proc get-file-rev {f index {r ""}} {
         }
         set finfo(lbl,$index) "$f (CVS $rev)"
         die-unless "exec $cmd update -p $cvsopt \"$f\"" "\"$finfo(pth,$index)\""
-    } elseif {[file isdirectory [file join $dirname .svn]]} {
+    } elseif {! [catch {eval "exec svn info"}]} {
         set cmd "svn"
         if {$::tcl_platform(platform) == "windows"} {
             append cmd ".exe"
         }
         if {"$r" == "" || "$rev" == "rBASE"} {
             set finfo(lbl,$index) "$f (SVN BASE)"
-            die-unless "exec cat \"$dirname/.svn/text-base/$tailname.svn-base\"" \
-              $finfo(pth,$index)
         } else {
             set finfo(lbl,$index) "$f (SVN $rev)"
-            die-unless "exec $cmd cat $svnopt \"$f\"" $finfo(pth,$index)
         }
+        die-unless "exec $cmd cat $svnopt \"$f\"" $finfo(pth,$index)
     } elseif {[file isdirectory [file join $dirname .git]]} {
         set cmd "git"
         if {$::tcl_platform(platform) == "windows"} {
@@ -819,8 +817,7 @@ proc get-file-rev {f index {r ""}} {
         set prefix [exec $cmd rev-parse --show-prefix]
         if {"$r" == "" || "$rev" == "rBASE"} {
             set finfo(lbl,$index) "$f (GIT BASE)"
-            die-unless "exec $cmd show \":$prefix$f\"" \
-              $finfo(pth,$index)
+            die-unless "exec $cmd show \":$prefix$f\"" $finfo(pth,$index)
         } else {
             set finfo(lbl,$index) "$f (GIT $rev)"
             die-unless "exec $cmd show \"$gitopt$prefix$f\"" $finfo(pth,$index)
@@ -1248,10 +1245,17 @@ proc assemble-args {} {
             if {[get-file "$f" 2]} {return}
 
         } else {
-            do-error "Error: you specified $pths file(s) and $revs revision(s)"
-            do-usage gui
-            tkwait window .usage
-            return 1
+            if {[winfo exists .toolbar]} {
+                do-error "Error: you specified $pths file(s) and $revs revision(s)"
+                do-usage gui
+                tkwait window .usage
+
+                return 1
+            } else {
+                puts stderr "Error: you specified $pths file(s) and $revs revision(s)"
+                do-usage cline
+                exit 1
+            }
         }
     }
 
@@ -3065,6 +3069,13 @@ proc customize {} {
     set pagelist {}
 
     # The relief makes these work, so we don't need to use the selcolor
+    # Radiobuttons without indicators look rather sucky on MacOSX, so
+    # we'll tweak the style for that platform
+    if {$::tcl_platform(os) == "Darwin"} {
+        set indicatoron true
+    } else {
+        set indicatoron false
+    }
     foreach page [list General Display Appearance] {
         set frame $w(preferences).f$page
         lappend pagelist $frame
@@ -3072,7 +3083,7 @@ proc customize {} {
         radiobutton $rb -command "customize-selectPage $frame" \
           -selectcolor $w(background) \
           -variable g(prefPage) -value $frame -height 2 -text $page \
-          -indicatoron false -borderwidth 1
+          -indicatoron $indicatoron -borderwidth 1
 
         pack $rb -side left
 
@@ -6618,7 +6629,7 @@ If not set, no line numbers will appear.
 <bld>$pref(tagln)</bld>
 
 If set, line numbers are highlighted with the options defined in the \
-      Appearance section of the preferences.
+       Appearance section of the preferences.
 If not set, line numbers won\'t be highlighted.
 
 <bld>$pref(showcbs)</bld>
@@ -6672,7 +6683,7 @@ finds the largest common substring, and recursively repeats on the left and \
 <bld>$pref(tagtext)</bld>
 
 If set, the file contents will be highlighted with the options defined in the \
-      Appearance section of the preferences.
+       Appearance section of the preferences.
 If not set, the file contents won\'t be highlighted.
 
 <bld>$pref(colorcbs)</bld>
@@ -9606,7 +9617,7 @@ proc get_cde_params {} {
         set palf ""
         while {[gets $fh ln] != -1} {
             regexp "^\\*background:\[ \t]*(.*)\$" $ln nil textbg
-            regexp "^\\*foreground:\[ \t]*(.*)\$" $ln nil textbg
+            regexp "^\\*foreground:\[ \t]*(.*)\$" $ln nil textfg
             regexp "^\\*0\\*ColorPalette:\[ \t]*(.*)\$" $ln nil palette
             regexp "^Window.Color.Background:\[ \t]*(.*)\$" $ln nil textbg
             regexp "^Window.Color.Foreground:\[ \t]*(.*)\$" $ln nil textfg
@@ -9636,6 +9647,14 @@ proc get_cde_params {} {
                     gets $fh iconbg ;#control panel bg too
                     close $fh
 
+                    option add *Text.highlightColor $wkspc4
+                    option add *Dialog.Background $menubg
+                    option add *Menu.Background $menubg
+                    option add *Menu.activeBackground $menubg
+                    option add *Menu.activeForeground $fg
+                    option add *Menubutton.Background $menubg
+                    option add *Menubutton.activeBackground $menubg
+                    option add *Menubutton.activeForeground $fg
                 }
             }
         }
@@ -9649,36 +9668,27 @@ proc get_cde_params {} {
     if {[info exists activetitle]} {
       set hlbg $activetitle
     } else {
-      set hlbg $fg
+      set hlbg "#b24d7a"
     }
     set w(selcolor) $hlbg
     option add *Button.activeBackground $bg
     option add *Button.activeForeground $fg
     option add *Canvas.Background $shadow
     option add *Canvas.Foreground black
-    option add *Dialog.Background $menubg
     option add *Entry.Background $textbg
     option add *Entry.Foreground $textfg
     option add *Entry.readonlyBackground $bg
     option add *Entry.highlightBackground $bg
-    option add *Entry.highlightColor $activetitle
+    option add *Entry.highlightColor $hlbg
     option add *Listbox.background $textbg
     option add *Listbox.selectBackground $w(selcolor)
     option add *Listbox.selectForeground $fg
+    option add *Menu.borderWidth 1
     option add *Scrollbar.activeBackground $bg
     option add *Scrollbar.troughColor $shadow
     option add *Text.Background $textbg
     option add *Text.Foreground $textfg
     option add *Text.highlightBackground $bg
-    option add *Text.highlightColor $wkspc4
-
-    option add *Menu.borderWidth 1
-    option add *Menu.Background $menubg
-    option add *Menu.activeBackground $menubg
-    option add *Menu.activeForeground $fg
-    option add *Menubutton.Background $menubg
-    option add *Menubutton.activeBackground $menubg
-    option add *Menubutton.activeForeground $fg
 
     # Menu checkboxes
     if {$tk_version >= 8.5} {
