@@ -1,12 +1,13 @@
 Instructions to build stand-alone tkdiff (no tk required)
 for Windows and Mac:
 
-To make a stand-alone starpack for Windows (can be done on Linux)
+To make a stand-alone starpack for Windows or MacOS (can be done on Linux)
   1. Get tclkit for your platform and install it in your PATH.
   2. Get tclkit.exe for Windows and put it somewhere like in $HOME/TclKit.
   3. Get diff.exe and uninstall.exe for Windows.  Put them where tkdiff is.
   4. Edit PackStarpack so $Tclkit points to where you put it.
-  5. Run PackStarpack.  It will produce the stand-alone tkdiff.exe
+  5. Run PackStarpack.  It will produce a stand-alone tkdiff.exe or a
+     TkDiff.app bundle.
 
 Windows installer (do on Windows):
   6. Get InstallJammer for Windows.
@@ -15,7 +16,12 @@ Windows installer (do on Windows):
   8. Click "Build Installer" in InstallJammer.  It will produce an "output"
       directory with a Windows installer in it.
 
-To make a stand-alone TkDiff.app for MacOS X (has to be done on a Mac):
+To make a stand-alone TkDiff.app for MacOS X (do on Mac):
+Method 1 (starpack)
+  6. Run MacFinish to make a disk image and compress it.
+
+------------------
+Method 2 for Mac:
   1. Get a Wish standalone like TclTkAquaStandalone-8.4.9 from
       http://tcltkaqua.sourceforge.net/, unpack it,  and put it 
       somewhere like in your Downloads directory.  I recommend

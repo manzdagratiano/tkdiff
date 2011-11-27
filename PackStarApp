@@ -49,3 +49,23 @@ cp Info.plist TkDiff.app/Contents
 cp Delta.icns TkDiff.app/Contents/Resources
 mv tkdiff.kit TkDiff.app/Contents/MacOS/tkdiff
 
+exit
+
+# Now, on the Mac, do this:
+set V = "4.2"
+if ( ! -f tkdiff-$V) mkdir tkdiff-$V
+mv TkDiff.app tkdiff-$V
+cp LICENSE.txt tkdiff-$V
+cp CHANGELOG.txt tkdiff-$V
+cp README.MacOS tkdiff-$V
+echo "hdiutil create -fs HFS+ -volname TkDiff-$V -srcfolder tkdiff-${V} tkdiff-$V.dmg"
+hdiutil create -fs "HFS+" -volname TkDiff-$V -srcfolder tkdiff-${V} tkdiff-$V.dmg
+if ($status != 0) exit
+
+echo "Compressing DMG."
+if ( -f "tkdiff-$V.dmg.gz" ) rm -f "tkdiff-$V.dmg.gz"
+gzip tkdiff-$V.dmg
+
+echo "Created:"
+ls -al tkdiff-$V.dmg.gz
+
